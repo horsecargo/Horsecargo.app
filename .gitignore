@@ -10,5 +10,6 @@ android/local.properties
 *.jks
 *.keystore
 dist/
+work/
 .DS_Store
 test/shots-acc/

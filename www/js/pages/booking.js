@@ -42,7 +42,6 @@ export async function render({ el, params, setTitle, rerender }) {
   if (st === 'pending_deposit' && can('booking.edit')) more.push(`<a class="btn sm" href="#/bookings/new?edit=${b.id}">${icon('gear')}${esc(t('edit'))}</a>`);
   if (!closed && can('tracking.note')) more.push(`<button class="btn sm" data-act="note">${icon('clock')}${esc(t('add_note'))}</button>`);
   if (grn) more.push(`<a class="btn sm" href="#/doc/labels/${b.id}">${icon('tag')}${esc(t('print_labels'))}</a>`);
-  more.push(`<a class="btn sm" href="#/doc/waybill/${b.id}">${icon('print')}${esc(t('waybill'))}</a>`);
   more.push(`<a class="btn sm" target="_blank" rel="noopener" href="${whatsappLink(b.consignee_phone, trackMsg(b))}">${icon('whatsapp')}${esc(t('share_whatsapp'))}</a>`);
   if (['pending_deposit', 'booked', 'received'].includes(st) && can('booking.cancel')) more.push(`<button class="btn sm danger" data-act="cancel">${icon('x')}${esc(t('cancel_booking'))}</button>`);
 

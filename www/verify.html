@@ -81,10 +81,11 @@
                'It may have been cancelled, or the code may be mistyped.</p>');
           return;
         }
-        var cls = d.status === 'approved' ? 'ok' : d.status === 'pending' ? 'wait' : 'no';
-        var label = d.status === 'approved' ? 'Approved' : d.status === 'pending' ? 'Pending approval'
+        var cls = d.status === 'issued' || d.status === 'approved' ? 'ok' : d.status === 'pending' ? 'wait' : 'no';
+        var label = d.status === 'issued' ? 'Issued — no approval required' : d.status === 'approved' ? 'Approved' : d.status === 'pending' ? 'Pending approval'
                   : d.status === 'rejected' ? 'Rejected' : 'Void';
         var html = '<div class="vstat ' + cls + '">' + esc(label) + '</div>';
+        if (d.retired) html += '<p class="muted small">Historical document — retired from the active workflow.</p>';
         if (d.superseded) {
           html += '<p class="muted small" style="margin:12px 0 0">This document was changed after it was approved. ' +
                   'The printed copy is out of date — ask Horse Cargo for the current version.</p>';
@@ -98,7 +99,7 @@
                 (d.approved_at ? row('Approved at', fdt(d.approved_at)) : '') +
                 row('Checked at', fdt(d.checked_at)) +
                 '<p class="muted small" style="margin-top:14px">' + esc(d.company || 'Horse Cargo') +
-                ' · This page confirms the document exists and its approval status. ' +
+                ' · This page confirms the document exists and its current status. ' +
                 'Amounts and customer details are not shown here.</p>' +
                 '<a class="btn" style="margin-top:12px" href="track.html">Track a shipment</a>';
         show(html);

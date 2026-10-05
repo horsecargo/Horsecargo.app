@@ -1,5 +1,18 @@
 # Horse Cargo — Cargo Operating System (v1.0)
 
+## Document & Packing List update (v5)
+
+Install `supabase/documents-packing-v5.sql` **after** `staff-storage-v4.sql`, then deploy the matching `www/` files. The full schema order is schema → seed → accounting-1-roles (separate transaction) → accounting-2 → shipments-v2 → documents-v3 → staff-storage-v4 → documents-packing-v5. Do not rerun older migrations after v5: they replace RPC definitions.
+
+- GRN and Invoice are issued immediately, without approval. Shipment Confirmation is retired from active routes/menus; its database records and historical QR verification remain available.
+- GRN, Invoice and Packing List support A4 portrait printing and a Download PDF action. Invoice payment details are shown directly on the document.
+- Cargo descriptions/quantities come from `v_shipment_items`. Cargo rows have no individual sale price in this application; freight/extra-charge rows therefore remain separate, preserving KG/CBM pricing, FX, discounts, paid amounts and balances. The billed unit rate shown is the stored billed line amount divided by its billed quantity.
+- Packing Lists use `HC-PL-YYMM-####`, the existing database counter convention. Boxes may combine shipments or split one item across boxes. Draft quantities reserve stock immediately and are included in existing Storage packed totals. Removing/reducing draft items restores availability. Finalized lists are read-only.
+- List/box/item mutations use the existing `storage.pack` permission; active staff can read operational reports. The existing partial-packing API continues sharing the same stock ledger and locks. Linked list entries cannot be reversed through the old entry-void action.
+- Shipment editing keeps item IDs and packing history. Received items cannot be deleted or have their unit changed; declared quantities cannot fall below already packed quantities.
+
+See [test/README-test.md](test/README-test.md) for isolated PostgreSQL, RLS, concurrency and browser/PDF checks. These tests use local fixture data, not production. Native Android PDF saving requires device validation; the browser download and A4 print paths are covered.
+
 Web app (HTML · CSS · JavaScript) + Android APK (Capacitor) + Supabase backend.
 Imejengwa kwa kutumia features za **ACMS** kama reference, na kanuni za **Horse Cargo Operating Blueprint**.
 

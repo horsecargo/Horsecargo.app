@@ -1,3 +1,5 @@
+import { shipmentItemTable, paymentInformation } from '../document-items.js';
+import { wirePDF } from '../document-pdf.js';
 import { t } from '../i18n.js';
 import { from, run, rpc, state, branchName, catName, publicTrackUrl, verifyUrl } from '../api.js';
 import { icon, esc, usd, money, num, fdate, fdatetime, qrSVG, whatsappLink, isNative } from '../ui.js';
@@ -15,12 +17,13 @@ async function docStamp(type, id) {
   let d = null;
   try { d = await rpc('doc_register', { p_type: type, p_doc_id: id }); } catch { /* verification optional */ }
   if (!d) return '';
-  const label = { pending: 'Pending approval', approved: 'Approved', rejected: 'Rejected' }[d.status] || d.status;
-  const color = d.status === 'approved' ? '#1d8a55' : d.status === 'rejected' ? '#b3261e' : '#8a5a00';
+  const exempt = ['invoice', 'grn'].includes(type);
+  const label = exempt ? 'Issued' : { pending: 'Pending approval', approved: 'Approved', rejected: 'Rejected' }[d.status] || d.status;
+  const color = exempt || d.status === 'approved' ? '#1d8a55' : d.status === 'rejected' ? '#b3261e' : '#8a5a00';
   return `<div class="qr-box verify">
     ${qrSVG(verifyUrl(d.token), 4)}
     <div class="vq">Scan to verify document</div>
-    <div class="vs" style="color:${color}">${esc(label)}${d.approved_by ? ` · ${esc(d.approved_by)}` : ''}</div>
+    <div class="vs" style="color:${color}">${esc(label)}${!exempt && d.approved_by ? ` · ${esc(d.approved_by)}` : ''}</div>
   </div>`;
 }
 
@@ -28,19 +31,21 @@ function header(title, ref, extra = '') {
   const s = state.settings;
   return `<div class="dh">
     <div class="co" style="display:flex;gap:12px;align-items:center"><span class="logo-tile"><img src="img/logo-white.png" alt="Horse Cargo"></span>
-      <div><b>${esc(s.company_name)}</b><div>${esc(s.company_address)}</div><div>${esc(s.company_phone)} · ${esc(s.company_email)}</div>
+      <div><b>${esc('Horse Cargo Company Ltd')}</b><div>${esc(s.company_address)}</div><div>${esc(s.company_phone)} · ${esc(s.company_email)}</div>
       <div>Dar es Salaam: ${esc(state.branches.find((b) => b.code === 'DAR')?.phone || '')} · Mwanza: ${esc(state.branches.find((b) => b.code === 'MWZ')?.phone || '')}</div></div></div>
     <div class="dt"><h1>${title}</h1><div class="mono" style="font-size:15px;font-weight:700">${esc(ref)}</div>${extra}</div>
   </div>`;
 }
 const toolbar = (back, share) => `<div class="doc-toolbar"><a class="btn" href="${back}">${icon('arrowLeft')}${esc(t('back'))}</a>
-  ${isNative() ? '' : `<button class="btn primary" onclick="window.print()">${icon('print')}${esc(t('print'))}</button>`}${share || ''}</div>`;
+  ${isNative() ? '' : `<button class="btn primary" onclick="window.print()">${icon('print')}${esc(t('print'))}</button>`}${share || ''}<button class="btn" id="download-pdf">${icon('download')}Download PDF</button></div>`;
 
 export async function render({ el, params, setTitle }) {
   const [type, id] = params;
-  const H = { invoice, receipt, grn, labels, release, waybill }[type];
+  const H = { invoice, receipt, grn, labels, release, packing: packingList }[type];
   if (!H) { el.innerHTML = 'Unknown document'; return; }
   await H(el, id, setTitle);
+  if (type !== 'labels') wirePDF(el);
+  else el.querySelector('#download-pdf')?.remove();
 }
 
 async function loadBooking(id) { return run(from('v_shipments').select('*').eq('id', id).single()); }
@@ -57,6 +62,7 @@ function parties(b) {
 async function invoice(el, id, setTitle) {
   const b = await loadBooking(id);
   const inv = await run(from('invoices').select('*').eq('shipment_id', id).eq('status', 'issued').single());
+  const items = await run(from('v_shipment_items').select('*').eq('shipment_id', id).order('id'));
   const lines = await run(from('invoice_lines').select('*').eq('invoice_id', inv.id).order('id'));
   setTitle(inv.ref);
   const cur = inv.currency || 'USD'; const fx = Number(inv.fx_rate || 1);
@@ -67,15 +73,19 @@ async function invoice(el, id, setTitle) {
     ${header(L('INVOICE'), inv.ref, `<div>${fdate(inv.issued_at)}</div>`)}
     <div class="doc-top"><div style="flex:1">${parties(b)}</div>${stamp}</div>
     <p><b>${L('Cargo')}:</b> ${esc(b.description)} · ${num(b.pieces, 0)} pcs${b.cbm ? ` · ${num(b.cbm, 3)} CBM` : ''}${b.actual_kg ? ` · ${num(b.actual_kg, 1)} kg` : ''}${b.mode === 'air' && b.chargeable_kg ? ` · ${num(b.chargeable_kg, 1)} chargeable kg` : ''}</p>
-    <table><thead><tr><th>${L('Description')}</th><th class="num">${L('Qty')}</th><th class="num">${L('Rate')}</th><th class="num">${esc(cur)}</th></tr></thead>
+    <h2>CARGO ITEMS</h2>${shipmentItemTable(items)}
+    <h2>FREIGHT &amp; CHARGES</h2>
+    <p class="doc-note">Freight is billed by CBM or kg. Cargo items are listed separately.</p>
+    <table><thead><tr><th style="width:52%">${L('Description')}</th><th class="num" style="width:10%">${L('Qty')}</th><th class="num" style="width:18%">Billed Rate (${esc(cur)})</th><th class="num" style="width:20%">AMOUNT (${esc(cur)})</th></tr></thead>
     <tbody>${lines.map((l) => `<tr><td>${esc(l.description)}${l.kind === 'duty' && !/at cost/i.test(l.description) ? ' <i>(at cost)</i>' : ''}
         ${cur !== 'USD' ? `<div style="color:#777;font-size:11px">USD ${num(l.amount, 2)}</div>` : ''}</td>
-      <td class="num">${num(l.qty, 3)}</td><td class="num">${num(l.unit_price, 2)}</td><td class="num">${money(l.amount_txn ?? l.amount * fx, cur, { bare: true })}</td></tr>`).join('')}
+      <td class="num">${num(l.qty, 3)}</td><td class="num">${num(Number(l.qty) ? Number(l.amount_txn ?? l.amount * fx) / Number(l.qty) : 0, 2)}</td><td class="num">${money(l.amount_txn ?? l.amount * fx, cur, { bare: true })}</td></tr>`).join('')}
       <tr class="tot"><td colspan="3">${L('TOTAL')}</td><td class="num">${money(inv.total_txn, cur)}</td></tr>
       <tr><td colspan="3">${L('Paid')}</td><td class="num">${money(b.paid_txn, cur)}</td></tr>
       <tr class="tot"><td colspan="3">${L('BALANCE DUE')}</td><td class="num">${money(bal, cur)}</td></tr></tbody></table>
     ${cur !== 'USD' ? `<p style="font-size:12px;color:#555">Freight rates are quoted in USD. Exchange rate applied to this invoice: <b>1 USD = ${num(fx, 2)} ${esc(cur)}</b> (${fdate(inv.fx_date || inv.issued_at)}). Total in USD: ${usd(inv.total)}.</p>` : ''}
     ${bal <= 0.009 ? `<div class="stamp" style="color:#1d8a55">PAID</div>` : ''}
+    ${paymentInformation()}
     <div class="foot">${esc(state.settings.invoice_terms || '')}<br>Track: ${esc(publicTrackUrl(b.ref))}</div>
   </div>`;
 }
@@ -109,6 +119,7 @@ async function receipt(el, id, setTitle) {
 async function grn(el, id, setTitle) {
   const b = await loadBooking(id);
   const g = await run(from('grns').select('*').eq('shipment_id', id).single());
+  const items = await run(from('v_shipment_items').select('*').eq('shipment_id', id).order('id'));
   const lines = await run(from('grn_lines').select('*').eq('grn_id', g.id).order('id'));
   const who = await run(from('profiles').select('full_name').eq('id', g.received_by).maybeSingle());
   setTitle(g.ref);
@@ -117,9 +128,12 @@ async function grn(el, id, setTitle) {
     ? `${dim(l.length_cm && num(l.length_cm, 1))} × ${dim(l.width_cm && num(l.width_cm, 1))} × ${dim(l.height_cm && num(l.height_cm, 1))}` : DASH;
   el.innerHTML = toolbar(`#/shipment/${id}`) + `
   <div class="doc">
-    ${header(L('GOODS RECEIVED NOTE'), g.ref, `<div>${fdatetime(g.received_at)}</div><div>${esc(branchName(g.branch_code))}</div>`)}
+    ${header(L('GOODS RECEIVED NOTE (GRN)'), g.ref, `<div>${fdatetime(g.received_at)}</div><div>${esc(branchName(g.branch_code))}</div>`)}
     <div class="doc-top"><div style="flex:1">${parties(b)}</div>${stamp}</div>
     <p><b>${L('Cargo')}:</b> ${esc(b.description)} · ${esc(catName(b) || '')}</p>
+    <p><b>Shipment Date:</b> ${fdate(b.created_at)}</p>
+    ${shipmentItemTable(items)}
+    <h2>RECEIVED PACKAGES &amp; MEASUREMENTS</h2>
     <table><thead><tr><th class="num">#</th><th class="num">${L('Pcs')}</th><th class="num">L × W × H (cm)</th><th>${L('Packing')}</th><th class="num">kg</th><th class="num">CBM</th></tr></thead>
     <tbody>${lines.map((l, i) => `<tr><td class="num">${i + 1}</td><td class="num">${l.pieces}</td><td class="num">${dims(l)}</td><td>${esc(l.packaging || DASH)}</td>
       <td class="num">${l.weight_kg ? num(l.weight_kg, 1) : DASH}</td><td class="num">${l.cbm ? num(l.cbm, 4) : DASH}</td></tr>`).join('')}
@@ -170,26 +184,24 @@ async function release(el, id, setTitle) {
   </div>`;
 }
 
-async function waybill(el, id, setTitle) {
-  const b = await loadBooking(id);
-  const items = await run(from('v_shipment_items').select('*').eq('shipment_id', id).order('id'));
-  setTitle(`${t('waybill')} · ${b.ref}`);
-  const stamp = await docStamp('waybill', b.id);
-  const cur = b.invoice_currency || 'USD';
-  el.innerHTML = toolbar(`#/shipment/${id}`) + `
-  <div class="doc">
-    ${header(L('SHIPMENT CONFIRMATION', 'UTHIBITISHO WA SHIPMENT'), b.ref, `<div>${fdate(b.created_at)}</div>`)}
-    <div class="doc-top"><div style="flex:1">${parties(b)}</div>${stamp}</div>
-    <table><thead><tr><th>${L('Cargo', 'Mzigo')}</th><th>${L('Category', 'Aina')}</th><th class="num">${L('Qty', 'Idadi')}</th></tr></thead>
-      <tbody>${items.map((i) => `<tr><td>${esc(i.description)}</td><td>${esc(i.category_name || '')}</td><td class="num">${num(i.qty, 2)} ${esc(i.unit)}</td></tr>`).join('')}</tbody></table>
-    <table><tbody>
-      <tr><td>${L('Chargeable', 'Kinachotozwa')}</td><td>${b.mode === 'sea' ? `${num(b.cbm, 3)} CBM` : `${num(b.weight_kg || b.actual_kg, 1)} kg`} × USD ${num(b.rate_used, 2)}</td></tr>
-      <tr><td>${L('Freight', 'Nauli')}</td><td>${usd(b.quoted_amount)}</td></tr>
-      <tr><td>${L('Invoice total')}</td><td><b>${money(b.invoice_total_txn, cur)}</b>${cur !== 'USD' ? ` <span style="color:#777">(USD ${num(b.invoice_total, 2)} @ 1 USD = ${num(b.invoice_fx, 2)} ${esc(cur)})</span>` : ''}</td></tr>
-      <tr><td>${L('Paid / Balance')}</td><td>${money(b.paid_txn, cur)} / <b>${money(b.balance_txn, cur)}</b></td></tr>
-    </tbody></table>
-    <p style="font-size:12px">Mark every carton: <b>HORSE CARGO / ${esc(b.ref)} / ${esc(branchName(b.destination_branch).toUpperCase())} / PIECE n OF N</b>.<br>
-    Andika kila katoni: HORSE CARGO / ${esc(b.ref)} / ${esc(branchName(b.destination_branch).toUpperCase())} / KIPANDE n KATI YA N.</p>
-    <div class="foot">${L('Track', 'Fuatilia')}: ${esc(publicTrackUrl(b.ref))}</div>
+async function packingList(el, id, setTitle) {
+  const [list, boxes, items] = await Promise.all([
+    run(from('v_packing_lists').select('*').eq('id',id).single()),
+    run(from('packing_list_boxes').select('*').eq('packing_list_id',id).order('box_no')),
+    run(from('v_packing_box_items').select('*').eq('packing_list_id',id).order('id')),
+  ]);
+  setTitle(list.ref);
+  el.innerHTML = toolbar(`#/packing-list/${id}`) + `<div class="doc">
+    ${header('PACKING LIST',list.ref,`<div>${fdate(list.packing_date)}</div>`)}
+    <p><b>Prepared By:</b> ${esc(list.prepared_by || DASH)} · <b>Status:</b> ${esc(list.status.toUpperCase())}</p>
+    ${list.status === 'draft' ? '<p class="doc-note">DRAFT — items reserve storage stock until finalized or removed.</p>' : ''}
+    ${boxes.map(box => {
+      const rows = items.filter(i=>i.box_id===box.id);
+      return `<section class="packing-box-report"><h2>BOX ${box.box_no}</h2>
+        <table><thead><tr><th style="width:31%">ITEM NO. (SHIPMENT NO.)</th><th>ITEM DESCRIPTION</th><th class="num" style="width:18%">QTY</th></tr></thead>
+        <tbody>${rows.map(i=>`<tr><td class="mono">${esc(i.shipment_ref)}</td><td>${esc(i.description)}</td><td class="num">${num(i.qty,2)} ${esc(i.unit)}</td></tr>`).join('')}</tbody></table>
+        <p><b>Total Qty in Box: ${num(rows.reduce((n,i)=>n+Number(i.qty),0),2)}</b></p></section>`;
+    }).join('')}
+    <div class="packing-summary"><b>Total Boxes: ${boxes.length}</b><br><b>Total Packed Quantity: ${num(items.reduce((n,i)=>n+Number(i.qty),0),2)}</b></div>
   </div>`;
 }

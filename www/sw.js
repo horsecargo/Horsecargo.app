@@ -1,9 +1,11 @@
 // Horse Cargo service worker — caches the app shell so it opens instantly and offline.
 // Data always comes live from Supabase (never cached).
-const CACHE = 'hc-shell-v6';
+const CACHE = 'hc-shell-v7';
 const SHELL = [
   './', 'index.html', 'track.html', 'verify.html', 'config.js', 'manifest.webmanifest', 'css/app.css',
   'vendor/supabase.js', 'vendor/qrcode.js', 'vendor/html5-qrcode.min.js',
+  'vendor/jspdf.umd.min.js', 'vendor/jspdf.plugin.autotable.min.js',
+  'js/document-items.js', 'js/document-pdf.js',
   'js/app.js', 'js/api.js', 'js/ui.js', 'js/i18n.js', 'js/scanner.js', 'js/acc.js',
   'js/pages/dashboard.js', 'js/pages/shipments.js', 'js/pages/shipment.js', 'js/pages/shipment-new.js', 'js/pages/grn.js',
   'js/pages/customers.js', 'js/pages/customer.js', 'js/pages/scan.js',
@@ -14,6 +16,7 @@ const SHELL = [
   'js/pages/acc-coa.js', 'js/pages/acc-account.js', 'js/pages/acc-money.js', 'js/pages/acc-suppliers.js', 'js/pages/acc-reports.js',
   'icons/icon-192.png', 'icons/icon-512.png', 'icons/favicon-96.png',
   'img/logo-white.png', 'img/mark-white.png', 'img/logo.jpg',
+  'img/logo-brand.png',
 ];
 self.addEventListener('install', (e) => { e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting())); });
 self.addEventListener('activate', (e) => { e.waitUntil(caches.keys().then((ks) => Promise.all(ks.filter((k) => k !== CACHE).map((k) => caches.delete(k)))).then(() => self.clients.claim())); });
