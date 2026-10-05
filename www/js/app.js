@@ -11,6 +11,7 @@ const ROUTES = [
   [/^\/shipment\/([\w-]+)$/, 'shipment', 'shipments'],
   [/^\/storage$/, 'storage', 'storage'],
   [/^\/storage\/([\w-]+)$/, 'storage-shipment', 'storage'],
+  [/^\/packing-list\/([\w-]+)$/, 'packing-list', 'packing_list'],
   [/^\/packing-list$/, 'packing-list', 'packing_list'],
   [/^\/customers$/, 'customers', 'customers'],
   [/^\/customer\/([\w-]+)$/, 'customer', 'customers'],

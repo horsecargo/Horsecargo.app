@@ -29,7 +29,7 @@ export async function render({ el, params, setTitle, query }) {
       mode: existing.mode, origin_branch: existing.origin_branch, destination_branch: existing.destination_branch,
       sender: { customer_id: existing.customer_id, name: existing.sender_name || existing.customer_name, phone: existing.sender_phone || existing.customer_phone, email: existing.sender_email || '', address: existing.sender_address || '' },
       receiver: { customer_id: existing.receiver_customer_id || '', name: existing.receiver_name, phone: existing.receiver_phone, email: existing.receiver_email || '', address: existing.receiver_address || '', tin: existing.receiver_tin || '' },
-      items: items.length ? items.map((i) => ({ description: i.description, category_id: i.category_id, qty: Number(i.qty), unit: i.unit })) : d.items,
+      items: items.length ? items.map((i) => ({ id: i.id, description: i.description, category_id: i.category_id, qty: Number(i.qty), unit: i.unit })) : d.items,
       cbm: existing.cbm ?? '', weight_kg: existing.weight_kg ?? existing.actual_kg ?? '',
       rate: existing.rate_used ?? '', rate_note: existing.rate_note || '', notes: existing.notes || '',
       currency: existing.invoice_currency || 'USD',
@@ -310,7 +310,7 @@ export async function render({ el, params, setTitle, query }) {
       const payload = {
         mode: d.mode, origin_branch: d.origin_branch, destination_branch: d.destination_branch,
         sender: d.sender, receiver: d.receiver,
-        items: d.items.filter((i) => i.description.trim()).map((i) => ({ description: i.description, category_id: i.category_id, qty: i.qty, unit: i.unit })),
+        items: d.items.filter((i) => i.description.trim()).map((i) => ({ id: i.id, description: i.description, category_id: i.category_id, qty: i.qty, unit: i.unit })),
         category_id: primaryCat(), cbm: d.cbm === '' ? null : Number(d.cbm), weight_kg: d.weight_kg === '' ? null : Number(d.weight_kg),
         rate: d.rate === '' ? null : Number(d.rate), rate_note: d.rate_note || null, notes: d.notes || null,
       };
