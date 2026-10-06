@@ -46,6 +46,8 @@ jobs:
         run: node test/v5_e2e.mjs
       - name: Verify v6 browser workflows and camera scan
         run: node test/v6_e2e.mjs
+      - name: Verify grouped navigation, role shortcuts and bilingual mobile layout
+        run: node test/navigation_e2e.mjs
       - name: Existing storage and shipment regressions
         run: |
           npm run test:setup

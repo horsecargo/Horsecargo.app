@@ -1,7 +1,8 @@
 import { t, getLang, setLang } from './i18n.js';
-import { sb, configured, state, loadSession, loadReference, errText, can, canAny, isAdmin } from './api.js';
+import { sb, configured, state, loadSession, loadReference, errText, can, canAny } from './api.js';
 import { refreshMailBadge, mailBadge } from './mailbadge.js';
 import { icon, esc, toast, $ } from './ui.js';
+import { navGroups, groupItems, navTools, groupForNav, primaryGroup, groupedMenu, openMenuGroup } from './navigation.js';
 
 // [pattern, page module, nav key, permission(s) required — any of them]
 // Detail pages without a permission rely on the database to refuse what the user may not see.
@@ -53,38 +54,7 @@ const ROUTES = [
 export const routeAllowed = (perm) => !perm || (Array.isArray(perm) ? canAny(...perm) : can(perm));
 
 function navItems() {
-  const acc = can('acc.read') && state.companies.length > 0;
-  const items = [
-    { key: 'dashboard', href: '#/', ic: 'dashboard' },
-    { key: 'customers', href: '#/customers', ic: 'users', show: can('customer.read') },
-    { key: 'leads', href: '#/leads', ic: 'target', show: canAny('lead.create', 'lead.read') },
-    { key: 'sourcing', href: '#/sourcing', ic: 'globe', show: canAny('sourcing.read', 'sourcing.write') },
-    { key: 'shipments', href: '#/shipments', ic: 'box', show: can('shipment.read') },
-    { key: 'grn_register', href: '#/grn', ic: 'scale', show: can('grn.read') },
-    { key: 'cargo_labels', href: '#/labels', ic: 'tag', show: can('label.read') },
-    { key: 'invoices', href: '#/invoices', ic: 'file', show: can('invoice.read') },
-    { key: 'payments', href: '#/payments', ic: 'receipt', show: can('payment.read') },
-    { key: 'storage', href: '#/storage', ic: 'warehouse', show: can('storage.read') },
-    { key: 'packing_list', href: '#/packing-list', ic: 'clipboard', show: can('packing.read') },
-    { key: 'scan', href: '#/scan', ic: 'scan', show: can('scan.use') },
-    { key: 'staff_mail', href: '#/mail', ic: 'mail', show: can('mail.use'), badge: 'mail' },
-    { key: 'reports', href: '#/reports', ic: 'chart', show: can('reports.read') },
-    { sep: true, label: 'accounting', show: acc },
-    { key: 'acc', href: '#/acc', ic: 'money', show: acc },
-    { key: 'acc_bills', href: '#/acc/bills', ic: 'list', show: acc },
-    { key: 'acc_expenses', href: '#/acc/expenses', ic: 'truck', show: acc },
-    { key: 'acc_journals', href: '#/acc/journals', ic: 'scale', show: acc },
-    { key: 'acc_reports', href: '#/acc/reports', ic: 'chart', show: acc },
-    { key: 'acc_coa', href: '#/acc/coa', ic: 'tag', show: acc },
-    { key: 'acc_money', href: '#/acc/money', ic: 'shield', show: acc },
-    { key: 'acc_suppliers', href: '#/acc/suppliers', ic: 'users', show: acc },
-    { sep: true, label: 'admin' },
-    { key: 'users', href: '#/users', ic: 'shield', show: isAdmin() || can('staff.read') },
-    { key: 'rates', href: '#/rates', ic: 'tag' },
-    { key: 'audit', href: '#/audit', ic: 'list', show: can('audit.read') },
-    { key: 'settings', href: '#/settings', ic: 'gear' },
-  ];
-  return items.filter((i) => i.show !== false);
+  return [...navGroups().flatMap((g) => g.href ? [g] : groupItems(g)), ...navTools()];
 }
 export { navItems };
 
@@ -94,25 +64,19 @@ function langToggle() {
     <button data-lang="sw" class="${getLang() === 'sw' ? 'on' : ''}">SW</button></div>`;
 }
 
-// phone bottom bar: Home · two permitted modules · Scan (or Mail) · More
+// Phone: Home · the user's work area · Scan · Mail · More, with no empty slots.
 function bottomNav() {
-  const centre = can('scan.use') ? { key: 'scan', href: '#/scan', ic: 'scan', label: t('scan') }
-    : can('mail.use') ? { key: 'staff_mail', href: '#/mail', ic: 'mail', label: t('mail_short') } : null;
-  const pool = [
-    { key: 'shipments', href: '#/shipments', ic: 'box', ok: can('shipment.read') },
-    { key: 'customers', href: '#/customers', ic: 'users', ok: can('customer.read') },
-    { key: 'leads', href: '#/leads', ic: 'target', ok: canAny('lead.create', 'lead.read') },
-    { key: 'sourcing', href: '#/sourcing', ic: 'globe', ok: canAny('sourcing.read', 'sourcing.write') },
-    { key: 'staff_mail', href: '#/mail', ic: 'mail', ok: can('mail.use') },
-  ].filter((x) => x.ok && x.key !== centre?.key).slice(0, 2);
-  const a = (x) => `<a href="${x.href}" data-nav="${x.key}">${icon(x.ic)}<span>${esc(x.key === 'staff_mail' ? t('mail_short') : t(x.key))}</span>${x.key === 'staff_mail' ? mailBadge() : ''}</a>`;
-  return [
-    `<a href="#/" data-nav="dashboard">${icon('dashboard')}<span>${esc(t('home'))}</span></a>`,
-    pool[0] ? a(pool[0]) : '<span></span>',
-    centre ? `<a href="${centre.href}" data-nav="${centre.key}" class="scan"><span class="ic">${icon(centre.ic)}${centre.key === 'staff_mail' ? mailBadge() : ''}</span><span class="tx">${esc(centre.label)}</span></a>` : '<span></span>',
-    pool[1] ? a(pool[1]) : '<span></span>',
-    `<a href="#/more" data-nav="more">${icon('menu')}<span>${esc(t('more'))}</span></a>`,
-  ].join('');
+  const group = primaryGroup();
+  const links = [
+    { key: 'dashboard', href: '#/', ic: 'dashboard', label: 'home' },
+    ...(group ? [{ key: `workspace-${group.key}`, href: `#/more?section=${group.key}`, ic: group.ic,
+      label: group.short || group.label, group: group.key }] : []),
+    ...navTools(),
+    { key: 'more', href: '#/more', ic: 'menu', label: 'more' },
+  ];
+  return links.map((i) => `<a href="${i.href}" data-nav="${i.key}" ${i.group ? `data-nav-group="${i.group}"` : ''} ${i.key === 'scan' ? 'class="scan"' : ''}>
+    ${i.key === 'scan' ? `<span class="ic">${icon(i.ic)}</span><span class="tx">${esc(t('scan'))}</span>`
+      : `${icon(i.ic)}<span>${esc(t(i.label || i.key))}</span>${i.key === 'staff_mail' ? mailBadge() : ''}`}</a>`).join('');
 }
 
 function renderShell() {
@@ -121,8 +85,7 @@ function renderShell() {
   <div class="shell">
     <aside class="sidebar">
       <div class="side-logo"><img src="img/logo-white.png" alt="Horse Cargo"></div><div class="side-branches">DUBAI · DAR ES SALAAM · MWANZA</div>
-      <nav class="nav">${navItems().map((i) => i.sep ? `<div class="sep"></div><div class="nav-label">${esc(t(i.label))}</div>` :
-        `<a href="${i.href}" data-nav="${i.key}">${icon(i.ic)}<span>${esc(t(i.key))}</span>${i.badge ? mailBadge() : ''}</a>`).join('')}</nav>
+      <nav class="nav grouped-menu" aria-label="${esc(t('nav_workspace'))}">${groupedMenu(navGroups(), 'sidebar')}</nav>
       <div class="side-foot">
         <a href="#/profile" class="who" style="display:block;color:#fff">${esc(p.full_name || p.email)}</a>
         <div class="role">${esc(t('r_' + p.role))}${p.branch_code ? ' · ' + esc(p.branch_code) : ''}</div>
@@ -135,14 +98,17 @@ function renderShell() {
         <button class="icon-btn back-btn hidden" data-back aria-label="${esc(t('back'))}">${icon('arrowLeft')}</button>
         <img class="mobile-brand" src="img/mark-white.png" alt="Horse Cargo">
         <div class="title" id="page-title"></div>
-        <a class="icon-btn top-act" href="#/search" title="${esc(t('search'))}" aria-label="${esc(t('search'))}">${icon('search')}</a>
-        ${can('mail.use') ? `<a class="icon-btn top-act mail-btn" href="#/mail" title="${esc(t('staff_mail'))}" aria-label="${esc(t('staff_mail'))}">${icon('mail')}${mailBadge()}</a>` : ''}
+        <a class="top-tool top-act" href="#/search" aria-label="${esc(t('search'))}">${icon('search')}<span class="tool-label">${esc(t('search'))}</span></a>
+        ${can('scan.use') ? `<a class="top-tool top-scan" href="#/scan" data-nav="scan" aria-label="${esc(t('scan'))}">${icon('scan')}<span class="tool-label">${esc(t('scan'))}</span></a>` : ''}
+        ${can('mail.use') ? `<a class="top-tool top-act mail-btn" href="#/mail" data-nav="staff_mail" aria-label="${esc(t('staff_mail'))}">${icon('mail')}<span class="tool-label">${esc(t('mail_short'))}</span>${mailBadge()}</a>` : ''}
         <span class="hide-desktop-lang">${langToggle()}</span>
       </header>
       <main class="content" id="page"></main>
     </div>
     <nav class="bottom-nav">${bottomNav()}</nav>
   </div>`;
+  const bottom = $('.bottom-nav');
+  bottom.style.setProperty('--bottom-items', bottom.children.length);
   // desktop: language toggle lives in sidebar
   const mq = window.matchMedia('(min-width: 861px)');
   const topLang = $('.hide-desktop-lang');
@@ -164,7 +130,19 @@ async function route() {
   if (!match) { location.hash = '#/'; return; }
   const [re, mod, nav, perm] = match;
   const params = path.match(re).slice(1);
-  document.querySelectorAll('[data-nav]').forEach((a) => a.classList.toggle('active', a.dataset.nav === nav));
+  // Document deep links belong to their operational/financial work area too.
+  const documentNav = { grn: 'grn_register', labels: 'cargo_labels', label: 'cargo_labels',
+    invoice: 'invoices', receipt: 'payments', packing: 'packing_list', release: 'shipments' };
+  const activeNav = nav || (mod === 'doc' ? documentNav[params[0]] : null);
+  const activeGroup = mod === 'more' ? query.get('section') : groupForNav(activeNav);
+  document.querySelectorAll('[data-nav]').forEach((a) => {
+    const active = (a.dataset.nav === activeNav && !(nav === 'more' && query.get('section')))
+      || (a.dataset.navGroup && a.dataset.navGroup === activeGroup);
+    a.classList.toggle('active', !!active);
+    if (active) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current');
+  });
+  openMenuGroup($('.sidebar .grouped-menu'), activeGroup);
+  document.querySelectorAll('.sidebar [data-menu-group]').forEach((b) => b.classList.toggle('active-group', b.dataset.menuGroup === activeGroup));
   const isRoot = ['dashboard', 'bookings', 'customers', 'shipments', 'scan', 'more', 'leads', 'sourcing', 'search'].includes(mod) || (mod === 'mail' && !params[0]);
   document.querySelector('.back-btn')?.classList.toggle('hidden', isRoot);
   document.querySelector('.mobile-brand')?.classList.toggle('hidden', !isRoot);
@@ -312,6 +290,11 @@ function startMailPolling() {
 
 // global handlers
 document.addEventListener('click', async (e) => {
+  const group = e.target.closest('[data-menu-group]');
+  if (group) {
+    openMenuGroup(group.closest('.grouped-menu'), group.getAttribute('aria-expanded') === 'true' ? null : group.dataset.menuGroup);
+    return;
+  }
   const l = e.target.closest('[data-lang]');
   if (l) { setLang(l.dataset.lang); if (state.profile?.active) { renderShell(); route(); } else boot(); return; }
   if (e.target.closest('[data-logout]')) { await sb?.auth.signOut(); state.profile = null; location.hash = '#/'; boot(); return; }

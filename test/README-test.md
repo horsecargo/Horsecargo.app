@@ -45,10 +45,13 @@ node test/v5_test.mjs
 node test/v6_test.mjs
 node test/v5_e2e.mjs
 node test/v6_e2e.mjs
+node test/navigation_e2e.mjs
 ```
 
 `v6_test.mjs` — role defaults and the editable permission matrix (incl. edits surviving a rerun), automatic QR tokens, scan resolution for GRN / invoice / packing list / label, typed numbers, legacy labels, foreign/tampered codes, revoke & replace, public verification without money, leads (every role, numbering under concurrency, visibility, assignment, history, duplicate-safe conversion incl. a simultaneous double convert), sourcing workflow, staff mail between users (threads, CC, read receipts, unread counts, archive/trash, outsiders blocked), global search permissions and direct-table write denial.
 
-`v6_e2e.mjs` — sidebar order by role, registers, Cargo Labels after GRN, packing-list QR on screen / A4 / PDF, Customer Care on a 390 px phone recording a lead and scanning (typed code **and** a fake camera showing the GRN QR), "QR Code Not Recognized", Staff Mail between two browsers with badge and read receipt, lead conversion, sourcing from a lead, role filter and permission matrix, HR read-only directory, no horizontal scrolling and no console errors.
+`v6_e2e.mjs` — grouped sidebar by role, registers, Cargo Labels after GRN, packing-list QR on screen / A4 / PDF, Customer Care on a 390 px phone recording a lead and scanning (typed code **and** a fake camera showing the GRN QR), "QR Code Not Recognized", Staff Mail between two browsers with badge and read receipt, lead conversion, sourcing from a lead, role filter and permission matrix, HR read-only directory, no horizontal scrolling and no console errors.
+
+`navigation_e2e.mjs` — six top-level entries for Admin, one-open-group keyboard navigation, the four Finance sections, deep-link selection, permission grants and revocation, role-specific dashboard/phone shortcuts, grouped More, Follow-up filtering, mobile access below the fold, and English/Kiswahili layout at 390px and 320px. Uses the same isolated fixtures; screenshots are under `work/qa/`.
 
 The older `ship_e2e`, `v3_e2e` and `v4_e2e` browser scripts already fail on the v5 code (they predate the v5 screens) and `doc_test.mjs` still asserts the approval flow v5 removed; they are unchanged.

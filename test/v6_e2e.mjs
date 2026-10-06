@@ -55,8 +55,8 @@ try {
   {
     const { ctx, page } = await session('manager');
     const nav = await page.$$eval('.sidebar .nav a', (as) => as.map((a) => a.dataset.nav));
-    const want = ['dashboard', 'customers', 'leads', 'sourcing', 'shipments', 'grn_register', 'cargo_labels', 'invoices', 'payments', 'storage', 'packing_list', 'scan', 'staff_mail', 'reports'];
-    assert.deepEqual(nav.slice(0, want.length), want); checks++; console.log('  ✓ manager sidebar follows the new module order');
+    const groups = await page.$$eval('.sidebar [data-menu-group]', (bs) => bs.map((b) => b.dataset.menuGroup));
+    assert.deepEqual(groups, ['sales', 'cargo', 'finance', 'reporting', 'administration']); checks++; console.log('  ✓ manager has Dashboard and five work-area groups');
     ok(nav.indexOf('cargo_labels') === nav.indexOf('grn_register') + 1, 'Cargo Labels sits right after GRN');
     await go(page, '/grn', 'tr[data-href]'); ok(await page.locator(`text=${fx.grnRef}`).count() > 0, 'GRN register lists the GRN');
     await go(page, '/labels', 'tr[data-href]'); ok(await page.locator(`a[href="#/doc/labels/${fx.ship}"]`).count() > 0, 'Cargo Labels register links label printing');
@@ -84,7 +84,7 @@ try {
     ok((await fs.stat(pdf)).size > 5000, 'packing list PDF downloads');
     await shot(page, 'packing-list-doc');
     const nav = await page.$$eval('.sidebar .nav a', (as) => as.map((a) => a.dataset.nav));
-    ok(!nav.includes('invoices') && nav.includes('leads') && nav.includes('grn_register') && nav.includes('cargo_labels') && nav.includes('scan'), 'logistics sees GRN/Labels/Scan/Leads, not Invoice');
+    ok(!nav.includes('invoices') && nav.includes('leads') && nav.includes('grn_register') && nav.includes('cargo_labels') && await page.locator('.topbar a[data-nav="scan"]').count() === 1, 'logistics sees GRN/Labels/Leads and a Scan shortcut, not Invoice');
     await ctx.close();
   }
 
@@ -93,7 +93,7 @@ try {
     const { ctx, page } = await session('care', { width: 390, height: 844 });
     ok(await page.locator('.bottom-nav a[data-nav="scan"]').isVisible(), 'phone bottom bar has Scan');
     await go(page, '/more', '#page .card');
-    const more = await page.$$eval('#page .card a.lc', (as) => as.map((a) => a.getAttribute('href')));
+    const more = await page.$$eval('#page .card a', (as) => as.map((a) => a.getAttribute('href')));
     ok(more.includes('#/leads') && more.includes('#/mail') && !more.includes('#/invoices') && !more.includes('#/grn'), 'menu only shows permitted modules');
     await go(page, '/invoices', '#page .callout'); ok(await page.locator('text=No access').count() === 1, 'route guard blocks Invoice for Customer Care');
     // record a lead with only the basics

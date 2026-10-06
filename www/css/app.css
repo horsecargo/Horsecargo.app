@@ -376,7 +376,7 @@ textarea.input { min-height: 72px; resize: vertical; }
   .topbar .lang-toggle button { color: #f3dde1; }
   .topbar .lang-toggle button.on { background: #fff; color: var(--brand); }
   .content { padding: 14px 14px calc(88px + var(--safe-bottom)); }
-  .bottom-nav { display: grid; grid-template-columns: repeat(5, 1fr); position: fixed; left: 0; right: 0; bottom: 0; z-index: 30; background: #fff; border-top: 1px solid var(--line); padding: 4px 4px calc(4px + var(--safe-bottom)); }
+.bottom-nav { display: grid; grid-template-columns: repeat(var(--bottom-items, 5), minmax(0, 1fr)); position: fixed; left: 0; right: 0; bottom: 0; z-index: 30; background: #fff; border-top: 1px solid var(--line); padding: 4px 4px calc(4px + var(--safe-bottom)); }
   .bottom-nav a { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 6px 2px; font-size: 10.5px; font-weight: 600; color: var(--ink-3); border-radius: 8px; }
   .bottom-nav a svg { width: 22px; height: 22px; }
   .bottom-nav a.active { color: var(--brand); }
@@ -749,3 +749,44 @@ ol.tl li::before { content: ""; position: absolute; left: 5px; top: 6px; bottom:
 ol.tl li:last-child::before { display: none; }
 ol.tl li::after { content: ""; position: absolute; left: 0; top: 4px; width: 12px; height: 12px; border-radius: 50%; background: #fff; border: 2px solid var(--brand-3); }
 ol.tl li:first-child::after { background: var(--brand); border-color: var(--brand); }
+
+/* Work-area navigation: six top-level entries, one open group. */
+.menu-group-toggle { display: flex; align-items: center; gap: 11px; width: 100%; min-height: 44px; padding: 10px; margin-bottom: 2px; border: 0; border-radius: 8px; background: transparent; color: inherit; font: inherit; font-weight: 600; text-align: left; cursor: pointer; }
+.menu-group-toggle > span:first-of-type { flex: 1; min-width: 0; }
+.menu-group-toggle svg { width: 18px; height: 18px; flex: none; }
+.menu-chevron { font-size: 23px; line-height: 18px; transition: transform .15s; }
+.menu-group-toggle[aria-expanded="true"] .menu-chevron { transform: rotate(90deg); }
+.menu-group-links[hidden] { display: none !important; }
+.menu-group-toggle:focus-visible, .grouped-menu a:focus-visible { outline: 2px solid currentColor; outline-offset: -2px; }
+.sidebar .menu-group-toggle { color: #f3dde1; }
+.sidebar .menu-group-toggle:hover, .sidebar .menu-group-toggle[aria-expanded="true"] { background: rgba(255,255,255,.08); color: #fff; }
+.sidebar .menu-group-toggle.active-group { color: #fff; }
+.sidebar .menu-group-links { margin: 0 0 8px 9px; padding-left: 9px; border-left: 1px solid rgba(255,255,255,.18); }
+.sidebar .menu-group-links a { padding: 8px 9px; font-size: 13px; }
+.menu-section-label { padding: 10px 9px 4px; color: var(--ink-3); font-size: 11px; font-weight: 600; }
+.sidebar .menu-section-label { color: #e8c3ca; }
+.side-logo { padding-top: 16px; padding-bottom: 8px; }
+.side-logo img { height: 72px; }
+.top-tool { display: inline-flex; align-items: center; gap: 6px; position: relative; min-height: 38px; padding: 7px 9px; border-radius: 8px; color: var(--ink-2); font-size: 13px; font-weight: 600; flex: none; }
+.top-tool svg { width: 19px; height: 19px; flex: none; }
+.top-tool:hover, .top-tool.active { background: var(--brand-soft); color: var(--brand); }
+.top-tool .nav-badge { margin-left: 0; }
+.workspace-menu, .workspace-tools { margin-bottom: 14px; }
+.workspace-menu { padding: 6px; }
+.workspace-menu > a, .workspace-menu .menu-group-links a { display: flex; align-items: center; gap: 11px; min-height: 44px; padding: 10px; border-radius: 8px; }
+.workspace-menu a svg { width: 19px; height: 19px; flex: none; }
+.workspace-menu .menu-group-links { padding-left: 15px; }
+.workspace-menu a:hover, .workspace-menu .menu-group-toggle:hover { background: var(--bg); }
+.workspace-tools svg { width: 20px; height: 20px; flex: none; }
+.dashboard-actions .btn { justify-content: flex-start; white-space: normal; text-align: left; }
+.dashboard-actions .btn svg { flex: none; }
+@media (max-width: 860px) {
+  .top-tool { color: #fff; min-width: 36px; min-height: 40px; justify-content: center; padding: 6px; }
+  .top-tool:hover, .top-tool.active { background: rgba(255,255,255,.1); color: #fff; }
+  .top-tool .tool-label, .top-scan { display: none; }
+  .topbar { gap: 7px; }
+  .top-tool .nav-badge { position: absolute; top: 0; right: -2px; }
+  .bottom-nav a { min-height: 48px; }
+  .menu-group-toggle { min-height: 48px; }
+}
+@media (prefers-reduced-motion: reduce) { .menu-chevron { transition: none; } }

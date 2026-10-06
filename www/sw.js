@@ -1,13 +1,13 @@
 // Horse Cargo service worker — caches the app shell so it opens instantly and offline.
 // Data always comes live from Supabase (never cached).
-const CACHE = 'hc-shell-v8';
+const CACHE = 'hc-shell-v9';
 const SHELL = [
   './', 'index.html', 'track.html', 'verify.html', 'config.js', 'manifest.webmanifest', 'css/app.css',
   'vendor/supabase.js', 'vendor/qrcode.js', 'vendor/html5-qrcode.min.js',
   'vendor/jspdf.umd.min.js', 'vendor/jspdf.plugin.autotable.min.js',
   'js/document-items.js', 'js/document-pdf.js',
   'js/app.js', 'js/api.js', 'js/ui.js', 'js/i18n.js', 'js/scanner.js', 'js/acc.js',
-  'js/mailbadge.js', 'js/register.js', 'js/staff.js',
+  'js/mailbadge.js', 'js/register.js', 'js/staff.js', 'js/navigation.js',
   'js/pages/leads.js', 'js/pages/lead.js', 'js/pages/sourcing.js', 'js/pages/sourcing-item.js', 'js/pages/mail.js',
   'js/pages/search.js', 'js/pages/grn-register.js', 'js/pages/labels.js', 'js/pages/invoices.js', 'js/pages/payments.js',
   'js/pages/dashboard.js', 'js/pages/shipments.js', 'js/pages/shipment.js', 'js/pages/shipment-new.js', 'js/pages/grn.js',
