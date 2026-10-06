@@ -68,7 +68,7 @@ export async function render({ el, setTitle, query }) {
   const me = state.profile.id;
   const followDue = (l) => l.follow_up_date && l.follow_up_date <= today() && !['converted', 'lost'].includes(l.status);
   await registerPage({
-    el, title: t('leads'), view: 'v_leads', order: ['created_at', false],
+    el, title: t('leads'), view: 'v_leads', order: ['created_at', false], initialChip: query.get('filter'),
     search: ['lead_number', 'customer_name', 'contact_person', 'phone', 'email'], emptyText: t('no_leads'), emptyIcon: 'target',
     actions: can('lead.create') ? `<button class="btn primary" id="new-lead">${icon('plus')}${esc(t('new_lead'))}</button>` : '',
     chips: [

@@ -12,7 +12,7 @@ const PAGE = 50;
  */
 export async function registerPage(cfg) {
   const { el } = cfg;
-  let q = ''; let chip = cfg.chips?.[0]?.key || null; let rows = []; let offset = 0;
+  let q = ''; let chip = cfg.chips?.find((c) => c.key === cfg.initialChip)?.key || cfg.chips?.[0]?.key || null; let rows = []; let offset = 0;
   el.innerHTML = `
     <div class="page-head"><div class="grow"><h1>${esc(cfg.title)}</h1>${cfg.sub ? `<p>${esc(cfg.sub)}</p>` : ''}</div>${cfg.actions || ''}</div>
     <div class="card">

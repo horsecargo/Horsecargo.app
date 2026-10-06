@@ -1,5 +1,23 @@
 // English / Kiswahili dictionary.  t('key') → current language, falls back to English.
 const D = {
+  nav_sales: ['Customers & Sales', 'Wateja na Mauzo'],
+  nav_sales_short: ['Customers', 'Wateja'],
+  nav_cargo: ['Cargo Operations', 'Shughuli za Mizigo'],
+  nav_cargo_short: ['Cargo', 'Mizigo'],
+  nav_finance: ['Finance', 'Fedha'],
+  nav_administration: ['Administration', 'Usimamizi'],
+  nav_admin_short: ['Staff', 'Wafanyakazi'],
+  nav_overview: ['Overview', 'Muhtasari'],
+  nav_customer_accounts: ['Customer accounts', 'Akaunti za wateja'],
+  nav_costs_suppliers: ['Costs & Suppliers', 'Gharama na Wasambazaji'],
+  nav_accounts: ['Accounts', 'Akaunti'],
+  nav_operational_reports: ['Operational reports', 'Ripoti za shughuli'],
+  nav_receive_cargo: ['Receive cargo', 'Pokea mzigo'],
+  nav_pack_cargo: ['Pack cargo', 'Funga mizigo'],
+  nav_follow_ups: ['Lead follow-ups', 'Ufuatiliaji wa leads'],
+  nav_workspace: ['Your workspace', 'Sehemu yako ya kazi'],
+  nav_workspace_sub: ['Choose a work area or use the shortcuts above.', 'Chagua sehemu ya kazi au tumia njia za mkato hapo juu.'],
+  nav_tools: ['Quick tools', 'Zana za haraka'],
   // ── v6 · roles, leads, sourcing, staff mail, scan & registers ─────────
   leads: ['Leads', 'Leads'],
   sourcing: ['Sourcing', 'Utafutaji Bidhaa'],
