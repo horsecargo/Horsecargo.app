@@ -1,4 +1,4 @@
-name: Documents and packing checks
+name: Cargo v5 and v6 checks
 on:
   pull_request:
   workflow_dispatch:
@@ -36,7 +36,16 @@ jobs:
           done
           cat work-server.log
           exit 1
-      - run: npm run test:v5
+      # The v5 database suite reapplies v5 functions. Restore v6 before either
+      # browser suite so both verify the current frontend against v6 RPCs.
+      - name: Verify v5 packing and document database regressions
+        run: node test/v5_test.mjs
+      - name: Verify v6 roles, QR, CRM, mail and RLS
+        run: node test/v6_test.mjs
+      - name: Verify v5 document, PDF, packing and mobile regressions
+        run: node test/v5_e2e.mjs
+      - name: Verify v6 browser workflows and camera scan
+        run: node test/v6_e2e.mjs
       - name: Existing storage and shipment regressions
         run: |
           npm run test:setup
