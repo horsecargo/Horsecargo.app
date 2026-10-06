@@ -5,7 +5,7 @@
 Install **after** v5, in two steps (Postgres needs the new role values committed before they are used):
 
 1. `supabase/crm-mail-v6-1-roles.sql` — run on its own.
-2. `supabase/crm-mail-v6-2.sql` — then deploy the matching `www/` files (service-worker cache `hc-shell-v9`).
+2. `supabase/crm-mail-v6-2.sql` — then deploy the matching `www/` files. Netlify generates a cache fingerprint for each web release.
 
 Full order: schema → seed → accounting-1-roles → accounting-2 → shipments-v2 → documents-v3 → staff-storage-v4 → documents-packing-v5 → crm-mail-v6-1-roles → crm-mail-v6-2. `crm-mail-v6-2.sql` is rerunnable; do not rerun older migrations after it (they replace RPC definitions).
 
@@ -140,21 +140,19 @@ Mara tu baada ya kupeleka hewani: fungua app → **"Mfanyakazi mpya? Omba kuingi
 **Mtu wa kwanza kujisajili anakuwa Administrator moja kwa moja.** Wafanyakazi wengine wanajisajili hivyo hivyo, kisha admin anawapa cheo + tawi kwenye **Watumiaji** na kuwawasha.
 
 ### E. APK ya Android
-1. Pakia project hii kwenye GitHub repo (branch `main`).
-2. GitHub → **Actions** → *Build Android APK* inajiendesha (au bofya **Run workflow**).
-3. Ikimaliza (~6–8 dk) → fungua run → **Artifacts** → pakua `horse-cargo-apk-N` → ndani kuna `horse-cargo-debug-N.apk` → install kwenye simu (ruhusu "Install unknown apps").
+APK ya live inafungua **https://horsecargoapp.netlify.app** kupitia Trusted Web Activity.
+User ana-install APK iliyosainiwa mara moja; mabadiliko ya web app yanamfikia baada ya
+Netlify deployment. App iliyo wazi inaonyesha **Sasisha sasa** ili user ahifadhi kazi
+yake kabla ya kutumia update. Mabadiliko ya Android yenyewe yanahitaji APK mpya.
 
-Kila ukipush mabadiliko ndani ya `www/`, APK mpya inajengwa yenyewe.
+**Actions → Build Android APK** hujenga preview kwenye PR, na signed release kwenye
+`main` ikiwa signing secrets zimewekwa. Preview ina package tofauti na release.
+Hifadhi signing key ile ile kwa kila native update; public fingerprint yake ipo
+kwenye `www/.well-known/assetlinks.json`. Usisambaze signing key kwa staff.
 
-**Kwa Google Play (release iliyosainiwa)** — tengeneza keystore mara moja tu, ihifadhi salama:
-```bash
-keytool -genkey -v -keystore horse-cargo.jks -keyalg RSA -keysize 2048 -validity 10000 -alias horsecargo
-base64 -w0 horse-cargo.jks   # nakili matokeo
-```
-GitHub → Settings → Secrets → Actions: `HC_KEYSTORE_BASE64`, `HC_KEYSTORE_PASSWORD`, `HC_KEY_ALIAS` (=horsecargo), `HC_KEY_PASSWORD`.
-(Hiari: `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `PUBLIC_TRACK_URL` — workflow itaandika `config.js` yenyewe.)
-
-Kujenga kwenye PC yako (ukiwa na Android Studio / SDK): `npm install && npm run apk:debug`
+Maelezo ya signing, secrets, domain verification, builds na device checks:
+[Android updates](docs/android-updates.md). Kujenga preview kwenye PC:
+`npm ci` kisha `npm run apk:debug` (JDK 21 na Android SDK zinahitajika).
 
 ---
 
@@ -213,4 +211,4 @@ Horse Cargo OS is a vanilla HTML/CSS/JS progressive web app backed by Supabase (
 
 **Accounting (A1):** two legal entities (AE, TZ) with automatic intercompany, USD double-entry ledger fed automatically by receipts, invoices and voids; supplier bills and expenses linked to containers; maker–checker manual journals; P&L, balance sheet (with intercompany elimination), trial balance and profit per container. Install by running `accounting-1-roles.sql` and then `accounting-2.sql` as two separate runs.
 
-**Setup:** run `supabase/schema.sql` then `seed.sql` in the Supabase SQL editor → put the project URL and anon key in `www/config.js` → deploy `www/` to Netlify/Vercel/Hostinger → the first person to sign up becomes admin → push to GitHub and download the APK from the *Build Android APK* workflow artifacts. Set real rates, deposit percentages and FX in the app before go-live.
+**Setup:** run `supabase/schema.sql` then `seed.sql` in the Supabase SQL editor → put the project URL and anon key in `www/config.js` → deploy `www/` to Netlify/Vercel/Hostinger → the first person to sign up becomes admin. The live Android APK uses the existing Netlify app; see [Android updates](docs/android-updates.md) for signing and distribution. Set real rates, deposit percentages and FX in the app before go-live.

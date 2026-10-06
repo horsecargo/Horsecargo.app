@@ -1,5 +1,7 @@
 // English / Kiswahili dictionary.  t('key') → current language, falls back to English.
 const D = {
+  app_update_ready: ['An update is ready. Save your work before updating.', 'Update mpya ipo. Hifadhi kazi yako kabla ya kusasisha.'],
+  app_update_apply: ['Update now', 'Sasisha sasa'],
   nav_sales: ['Customers & Sales', 'Wateja na Mauzo'],
   nav_sales_short: ['Customers', 'Wateja'],
   nav_cargo: ['Cargo Operations', 'Shughuli za Mizigo'],

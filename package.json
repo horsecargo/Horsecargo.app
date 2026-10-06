@@ -8,9 +8,12 @@
     "test:setup": "node test/setup.mjs",
     "test:server": "node test/server.mjs",
     "test:v5": "node test/v5_test.mjs && node test/v5_e2e.mjs",
+    "test:updates": "node test/updates_e2e.mjs",
+    "web:release": "node scripts/stamp-web-release.mjs",
     "cap:sync": "npx cap sync android",
-    "apk:debug": "npx cap sync android && cd android && ./gradlew assembleDebug",
-    "apk:release": "npx cap sync android && cd android && ./gradlew assembleRelease"
+    "apk:debug": "node scripts/build-apk.mjs debug",
+    "apk:release": "node scripts/build-apk.mjs release",
+    "apk:bundled": "npx cap sync android && cd android && ./gradlew assembleDebug"
   },
   "dependencies": {
     "@capacitor/android": "^7.0.0",

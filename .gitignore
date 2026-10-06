@@ -3,6 +3,7 @@ test/node_modules/
 test/shots/
 test/server.log
 android/app/build/
+android/live/build/
 android/build/
 android/.gradle/
 android/app/src/main/assets/public/

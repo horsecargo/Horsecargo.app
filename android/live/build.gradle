@@ -1,0 +1,64 @@
+apply plugin: 'com.android.application'
+
+def releaseKey = System.getenv('HC_KEYSTORE_PATH')
+def appCode = (System.getenv('HC_VERSION_CODE') ?: '20000').toInteger()
+
+android {
+    namespace 'com.horsecargoltd.app'
+    compileSdk 36
+    defaultConfig {
+        applicationId 'com.horsecargoltd.app'
+        minSdk 24
+        targetSdk 35
+        versionCode appCode
+        versionName System.getenv('HC_VERSION_NAME') ?: '2.0.0'
+        manifestPlaceholders = [appHost: 'horsecargoapp.netlify.app']
+    }
+    signingConfigs {
+        release {
+            if (releaseKey) {
+                storeFile file(releaseKey)
+                storePassword System.getenv('HC_KEYSTORE_PASSWORD')
+                keyAlias System.getenv('HC_KEY_ALIAS')
+                keyPassword System.getenv('HC_KEY_PASSWORD')
+            }
+        }
+    }
+    buildTypes {
+        debug {
+            // A preview install cannot replace the stable release or claim its domain.
+            applicationIdSuffix '.preview'
+            versionNameSuffix '-preview'
+            resValue 'string', 'app_name', 'Horse Cargo Preview'
+        }
+        release {
+            if (releaseKey) signingConfig signingConfigs.release
+            minifyEnabled false
+            resValue 'string', 'app_name', 'Horse Cargo'
+        }
+    }
+    sourceSets.main.res.srcDir layout.buildDirectory.dir('generated/branding')
+}
+
+// Reuse the existing Horse Cargo launcher artwork without copying binary source files.
+tasks.register('copyBranding', Copy) {
+    from '../app/src/main/res'
+    include 'mipmap*/**', 'drawable/ic_launcher_background.xml',
+            'drawable-v24/ic_launcher_foreground.xml', 'values/ic_launcher_background.xml'
+    into layout.buildDirectory.dir('generated/branding')
+}
+tasks.named('preBuild').configure { dependsOn 'copyBranding' }
+tasks.register('requireReleaseKey') {
+    doLast {
+        if (!releaseKey || !file(releaseKey).isFile() ||
+            !System.getenv('HC_KEYSTORE_PASSWORD') || !System.getenv('HC_KEY_ALIAS') ||
+            !System.getenv('HC_KEY_PASSWORD')) {
+            throw new GradleException('A stable signing key is required for the installable live release APK.')
+        }
+    }
+}
+tasks.matching { it.name == 'preReleaseBuild' }.configureEach { dependsOn 'requireReleaseKey' }
+
+dependencies {
+    implementation 'com.google.androidbrowserhelper:androidbrowserhelper:2.7.4'
+}
