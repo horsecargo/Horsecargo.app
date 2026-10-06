@@ -1,5 +1,26 @@
 # Horse Cargo — Cargo Operating System (v1.0)
 
+## Roles, Leads, Sourcing, Staff Mail & QR scan update (v6)
+
+Install **after** v5, in two steps (Postgres needs the new role values committed before they are used):
+
+1. `supabase/crm-mail-v6-1-roles.sql` — run on its own.
+2. `supabase/crm-mail-v6-2.sql` — then deploy the matching `www/` files (service-worker cache `hc-shell-v8`).
+
+Full order: schema → seed → accounting-1-roles → accounting-2 → shipments-v2 → documents-v3 → staff-storage-v4 → documents-packing-v5 → crm-mail-v6-1-roles → crm-mail-v6-2. `crm-mail-v6-2.sql` is rerunnable; do not rerun older migrations after it (they replace RPC definitions).
+
+- **Roles**: Manager, Operations, HR, Accounting (`accountant`), Logistics, Sales & Marketing, Sourcing, Customer Care (+ the technical Administrator). Counter, Warehouse, Cashier, Release officer, Finance manager and Viewer are retired from *new* assignment; current holders keep working.
+- **Permissions** are data (`role_permissions` + `permission_catalog`). The Administrator edits them in *Users → Role permissions*; the database enforces them (`has_perm`). Defaults are seeded once and are not overwritten by re-running the migration.
+- **Navigation** follows the permissions: Dashboard · Customers · Leads · Sourcing · Shipments · GRN · Cargo Labels · Invoice · Payments · Storage · Packing List · Scan · Staff Mail · Reports. Cargo Labels sit directly after GRN (also on the shipment page and after recording a GRN).
+- **QR codes**: one registry (`documents`) with an opaque random token per GRN, Invoice, Packing List, Cargo Label (and the existing receipts / delivery notes). Tokens are issued automatically when the record is created. The QR holds only `verify.html?d=<token>` — no IDs, amounts or contacts. Shipment Confirmation stays retired: old ones verify as "historical", no new ones are issued.
+- **Scan** (camera or typed number) calls `scan_document()`, which resolves the token on the server and returns the document type, number, date, prepared-by, status and only the facts relevant to that type (money only for roles that may see invoices). Unknown codes show "QR Code Not Recognized"; revoked codes show as revoked. Managers can revoke & replace a printed QR.
+- **Leads** (`LEAD-YYYYMMDD-NNN`): every staff role can record one (name, one contact, what they need). Team roles see all leads; others see the leads they recorded or are assigned. Manager assigns. Convert to Customer checks phone/email first and never creates a second customer with the same phone. Create Sourcing Request links the lead.
+- **Sourcing** (`SRC-YYYYMMDD-NNN`): New → Searching → Supplier found → Quotation sent → Customer approved → Purchased → Completed (or Cancelled with a reason), with full history.
+- **Staff Mail**: internal messages with threads, To/CC, reply, reply-all, forward, read receipts, Inbox/Sent/Archived/Trash, search and an unread counter (light 30-second poll). Tables are ready for a future SMTP bridge.
+- **Search** (top bar): shipment, GRN, invoice, packing list, lead, sourcing, customer or phone — results respect permissions.
+
+Tests: see [test/README-test.md](test/README-test.md) (`v6_test.mjs`, `v6_e2e.mjs`, the latter feeding a real QR video into the camera).
+
 ## Document & Packing List update (v5)
 
 Install `supabase/documents-packing-v5.sql` **after** `staff-storage-v4.sql`, then deploy the matching `www/` files. The full schema order is schema → seed → accounting-1-roles (separate transaction) → accounting-2 → shipments-v2 → documents-v3 → staff-storage-v4 → documents-packing-v5. Do not rerun older migrations after v5: they replace RPC definitions.

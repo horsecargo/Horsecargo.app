@@ -15,7 +15,7 @@ const roles = ok(await admin.rpc('assignable_roles'), 'assignable_roles');
 console.log('   assignable:', roles.join(', '));
 yes(!roles.includes('finance_manager'), 'Finance Manager cannot be assigned');
 yes(!roles.includes('viewer'), 'Viewer cannot be assigned');
-yes(roles.includes('accountant') && roles.includes('cashier') && roles.includes('manager'), 'the working roles remain');
+yes(roles.includes('accountant') && roles.includes('manager') && roles.includes('operations'), 'the working roles remain');  // v6: cashier/counter/warehouse/release officer retired from new assignment
 const finId = await uid(fin), counterId = await uid(counter);
 expectErr(await admin.rpc('admin_save_staff', { p: { id: counterId, role: 'finance_manager' } }), 'assigning Finance Manager to somebody new');
 expectErr(await admin.rpc('admin_invite_staff', { p_email: 'v@hc.test', p_full_name: 'V', p_role: 'viewer' }), 'inviting a Viewer');

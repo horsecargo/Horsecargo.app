@@ -13,12 +13,12 @@ const DASH = '—';
 const dim = (v) => (v === null || v === undefined || v === '' ? DASH : v);
 
 // Every document carries a QR code that opens its verification page.
-async function docStamp(type, id) {
+async function docStamp(type, id, opts = {}) {
   let d = null;
   try { d = await rpc('doc_register', { p_type: type, p_doc_id: id }); } catch { /* verification optional */ }
   if (!d) return '';
-  const exempt = ['invoice', 'grn'].includes(type);
-  const label = exempt ? 'Issued' : { pending: 'Pending approval', approved: 'Approved', rejected: 'Rejected' }[d.status] || d.status;
+  const exempt = ['invoice', 'grn', 'packing_list', 'label'].includes(type);
+  const label = exempt ? (opts.draft ? 'Draft' : 'Issued') : { pending: 'Pending approval', approved: 'Approved', rejected: 'Rejected' }[d.status] || d.status;
   const color = exempt || d.status === 'approved' ? '#1d8a55' : d.status === 'rejected' ? '#b3261e' : '#8a5a00';
   return `<div class="qr-box verify">
     ${qrSVG(verifyUrl(d.token), 4)}
@@ -41,10 +41,10 @@ const toolbar = (back, share) => `<div class="doc-toolbar"><a class="btn" href="
 
 export async function render({ el, params, setTitle }) {
   const [type, id] = params;
-  const H = { invoice, receipt, grn, labels, release, packing: packingList }[type];
+  const H = { invoice, receipt, grn, labels, label: labels, release, packing: packingList }[type];
   if (!H) { el.innerHTML = 'Unknown document'; return; }
   await H(el, id, setTitle);
-  if (type !== 'labels') wirePDF(el);
+  if (!['labels', 'label'].includes(type)) wirePDF(el);
   else el.querySelector('#download-pdf')?.remove();
 }
 
@@ -148,7 +148,11 @@ async function labels(el, id, setTitle) {
   const b = await loadBooking(id);
   setTitle(`${t('print_labels')} · ${b.ref}`);
   const n = b.pieces || b.est_pieces || 1;
-  const qr = qrSVG(b.ref, 3);
+  // One registry token per shipment's labels: the in-app Scan identifies it, the
+  // public verify page confirms it. Falls back to the shipment number if offline.
+  let token = null;
+  try { token = (await rpc('doc_register', { p_type: 'label', p_doc_id: id })).token; } catch { /* no GRN yet / offline */ }
+  const qr = qrSVG(token ? verifyUrl(token) : b.ref, 3);
   const cap = Math.min(n, 400);
   el.innerHTML = toolbar(`#/shipment/${id}`) + `
   <p class="no-print muted small" style="text-align:center">${n} pieces${n > cap ? ` (first ${cap})` : ''}</p>
@@ -191,9 +195,14 @@ async function packingList(el, id, setTitle) {
     run(from('v_packing_box_items').select('*').eq('packing_list_id',id).order('id')),
   ]);
   setTitle(list.ref);
+  const stamp = await docStamp('packing_list', id, { draft: list.status === 'draft' });
   el.innerHTML = toolbar(`#/packing-list/${id}`) + `<div class="doc">
     ${header('PACKING LIST',list.ref,`<div>${fdate(list.packing_date)}</div>`)}
-    <p><b>Prepared By:</b> ${esc(list.prepared_by || DASH)} · <b>Status:</b> ${esc(list.status.toUpperCase())}</p>
+    <div class="doc-top"><div style="flex:1"><table><tbody>
+      <tr><td><b>Packing List No.</b><br><span class="mono">${esc(list.ref)}</span></td><td><b>Date</b><br>${fdate(list.packing_date)}</td></tr>
+      <tr><td><b>Prepared By</b><br>${esc(list.prepared_by || DASH)}</td><td><b>Status</b><br>${esc(list.status.toUpperCase())}${list.finalized_at ? ` · ${fdate(list.finalized_at)}` : ''}</td></tr>
+      <tr><td><b>Total Boxes</b><br>${boxes.length}</td><td><b>Shipments</b><br><span class="mono">${esc([...new Set(items.map((i) => i.shipment_ref))].join(', ') || DASH)}</span></td></tr>
+    </tbody></table></div>${stamp}</div>
     ${list.status === 'draft' ? '<p class="doc-note">DRAFT — items reserve storage stock until finalized or removed.</p>' : ''}
     ${boxes.map(box => {
       const rows = items.filter(i=>i.box_id===box.id);

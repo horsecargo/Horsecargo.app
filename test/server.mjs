@@ -4,6 +4,7 @@ import http from 'node:http';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import pg from 'pg';
+pg.types.setTypeParser(1082,v=>v); // DATE as 'YYYY-MM-DD', like PostgREST
 const pool=new pg.Pool({connectionString:process.env.HC_TEST_DATABASE_URL||'postgres://postgres:local-test-only@127.0.0.1:55439/hc'});
 const root=path.resolve('www');
 const quote=s=>{if(!/^[a-z_][a-z_0-9]*$/i.test(s))throw Error('Invalid identifier');return `"${s}"`;};
@@ -50,7 +51,7 @@ http.createServer(async(req,res)=>{
       for(const [key,value] of url.searchParams) {
         if(['select','order','limit','offset'].includes(key))continue;
         if(key==='or') {
-          const choices=value.replace(/^\(|\)$/g,'').split(',').map(term=>{const [col,op,...v]=term.split('.');if(op!=='ilike')throw Error('Unsupported or');args.push(v.join('.'));return `${quote(col)} ilike $${args.length}`;});
+          const choices=value.replace(/^\(|\)$/g,'').split(',').map(term=>{const [col,op,...v]=term.split('.');const sqlOp={ilike:'ilike',eq:'='}[op];if(!sqlOp)throw Error('Unsupported or');args.push(v.join('.').replace(/\*/g,'%'));return `${quote(col)}::text ${sqlOp} $${args.length}`;});
           clauses.push(`(${choices.join(' or ')})`);continue;
         }
         const [op,...parts]=value.split('.');const v=parts.join('.');
@@ -87,6 +88,7 @@ http.createServer(async(req,res)=>{
     res.writeHead(200,{'Content-Type':mime});res.end(content);
   } catch(err) {
     if(client)await client.query('rollback');
+    if(process.env.HC_TEST_LOG)console.error(req.method,req.url,'→',err.message);
     json(res,400,{message:err.message,code:err.code||'TEST_ERROR'});
   } finally {client?.release();}
 }).listen(8787,'127.0.0.1',()=>console.log('Horse Cargo local test server http://127.0.0.1:8787'));

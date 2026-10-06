@@ -1,12 +1,15 @@
-import { t } from '../i18n.js';
-import { from, run, rpc, isAdmin, state, errText } from '../api.js';
+import { t, getLang } from '../i18n.js';
+const getLangLabel = (c) => (getLang() === 'sw' ? c.label_sw : c.label_en);
+import { from, run, rpc, isAdmin, can, state, errText } from '../api.js';
 import { icon, esc, fdate, fdatetime, modal, toast, formData, busy, empty, $, $$, confirmDialog } from '../ui.js';
 
 // Roles the administrator may still hand out. Finance Manager and Viewer are
 // deliberately missing: whoever holds one keeps it and keeps working, but
 // nobody new is put on them. The database enforces the same list.
-let ROLES = ['admin', 'manager', 'counter', 'warehouse', 'cashier', 'operations', 'release_officer', 'accountant'];
-const RETIRED = ['finance_manager', 'viewer'];
+// v6: the eight operational roles (+ the technical administrator). Older roles are
+// retired from new assignment but keep working for whoever still holds them.
+let ROLES = ['admin', 'manager', 'operations', 'hr', 'accountant', 'logistics', 'sales_marketing', 'sourcing', 'customer_care'];
+const RETIRED = ['counter', 'warehouse', 'cashier', 'release_officer', 'finance_manager', 'viewer'];
 
 const PERM_HINT = {
   'payment.record': 'perm_payment_record',
@@ -19,54 +22,113 @@ const PERM_HINT = {
 
 export async function render({ el, setTitle, query, rerender }) {
   setTitle(t('users'));
-  if (!isAdmin()) { el.innerHTML = `<div class="callout danger">${icon('lock')}<div>${esc(errText({ message: 'NOT_ALLOWED:' }))}</div></div>`; return; }
-  let tab = query.get('tab') === 'access' ? 'access' : query.get('tab') === 'invites' ? 'invites' : 'staff';
+  const admin = isAdmin();
+  if (!admin && !can('staff.read')) { el.innerHTML = `<div class="callout danger">${icon('lock')}<div>${esc(errText({ message: 'NOT_ALLOWED:' }))}</div></div>`; return; }
+  let tab = admin ? (['access', 'invites', 'perms'].includes(query.get('tab')) ? query.get('tab') : 'staff') : 'staff';
+  let roleFilter = ''; let nameFilter = '';
 
   const [rows, grants, invites, assignable, grantable] = await Promise.all([
     run(from('profiles').select('*').order('active', { ascending: false }).order('full_name')),
-    run(from('v_permission_grants').select('*').order('granted_at', { ascending: false }).limit(100)),
-    run(from('staff_invites').select('*').order('created_at', { ascending: false })).catch(() => []),
+    admin ? run(from('v_permission_grants').select('*').order('granted_at', { ascending: false }).limit(100)) : [],
+    admin ? run(from('staff_invites').select('*').is('cancelled_at', null).order('invited_at', { ascending: false })).catch(() => []) : [],
     rpc('assignable_roles').catch(() => ROLES),
-    rpc('grantable_permissions').catch(() => Object.keys(PERM_HINT)),
+    admin ? rpc('grantable_permissions').catch(() => Object.keys(PERM_HINT)) : [],
   ]);
   ROLES = assignable;
   const live = grants.filter((g) => g.is_active);
 
   el.innerHTML = `
   <div class="page-head">
-    <div class="grow"><h1>${esc(t('users'))}</h1><p>${esc(t('users_sub'))}</p></div>
-    <div class="row">
+    <div class="grow"><h1>${esc(admin ? t('users') : t('staff_directory'))}</h1><p>${esc(admin ? t('users_sub') : '')}</p></div>
+    ${admin ? `<div class="row">
       <button class="btn primary" id="invite">${icon('plus')}${esc(t('add_staff'))}</button>
-    </div>
+    </div>` : ''}
   </div>
-  <div class="chips" id="tabs" style="margin-bottom:14px">
+  <div class="chips ${admin ? '' : 'hidden'}" id="tabs" style="margin-bottom:14px">
     <button class="chip" data-tab="staff">${esc(t('staff'))} <span class="muted">${rows.filter((r) => r.active).length}</span></button>
     <button class="chip" data-tab="access">${esc(t('special_access'))}${live.length ? ` <span class="pill">${live.length}</span>` : ''}</button>
-    <button class="chip" data-tab="invites">${esc(t('pending_invites'))}${invites.filter((i) => !i.used_at).length ? ` <span class="pill">${invites.filter((i) => !i.used_at).length}</span>` : ''}</button>
+    <button class="chip" data-tab="perms">${esc(t('role_permissions'))}</button>
+    <button class="chip" data-tab="invites">${esc(t('pending_invites'))}${invites.filter((i) => !i.accepted_at).length ? ` <span class="pill">${invites.filter((i) => !i.accepted_at).length}</span>` : ''}</button>
   </div>
   <div id="pane"></div>`;
 
   const paint = () => {
     $$('#tabs .chip', el).forEach((c) => c.classList.toggle('on', c.dataset.tab === tab));
-    $('#pane', el).innerHTML = tab === 'staff' ? staffPane(rows) : tab === 'access' ? accessPane(grants, live) : invitePane(invites);
+    if (tab === 'perms') { permsPane($('#pane', el)); return; }
+    $('#pane', el).innerHTML = tab === 'staff' ? staffPane(filtered()) : tab === 'access' ? accessPane(grants, live) : invitePane(invites);
+    if (tab === 'staff') wireFilters();
+  };
+  const filtered = () => rows.filter((u) => (!roleFilter || u.role === roleFilter)
+    && (!nameFilter || `${u.full_name} ${u.email} ${u.phone || ''}`.toLowerCase().includes(nameFilter)));
+  const presentRoles = [...new Set([...ROLES.filter((r) => r !== 'admin'), ...rows.map((r) => r.role)])];
+  const wireFilters = () => {
+    const rf = $('#role-filter', el); const nf = $('#name-filter', el);
+    if (rf) rf.onchange = () => { roleFilter = rf.value; const list = $('#staff-list', el); list.outerHTML = staffTable(filtered()); };
+    if (nf) nf.oninput = () => { nameFilter = nf.value.trim().toLowerCase(); const list = $('#staff-list', el); list.outerHTML = staffTable(filtered()); };
+  };
+
+  // ───────── role permissions (admin edits the matrix; the database enforces it) ─────────
+  const permsPane = async (host) => {
+    host.innerHTML = `<div class="card card-b"><div class="spinner"></div></div>`;
+    const [catalog, matrix] = await Promise.all([
+      run(from('permission_catalog').select('*').order('sort')),
+      run(from('role_permissions').select('*')),
+    ]);
+    const editable = presentRoles.filter((r) => r !== 'admin');
+    let role = editable.includes('manager') ? 'manager' : editable[0];
+    const modules = [...new Set(catalog.map((c) => c.module))];
+    const paintPerms = () => {
+      const have = new Set(matrix.filter((m) => m.role === role).map((m) => m.permission));
+      host.querySelector('#perm-grid').innerHTML = modules.map((mod) => `<fieldset class="perm-group"><legend>${esc(t('m_' + mod))}</legend>
+        ${catalog.filter((c) => c.module === mod).map((c) => `<label class="perm-row"><input type="checkbox" data-perm="${esc(c.permission)}" ${have.has(c.permission) ? 'checked' : ''}>
+          <span>${esc(getLangLabel(c))}<span class="muted small mono"> ${esc(c.permission)}</span></span></label>`).join('')}</fieldset>`).join('');
+    };
+    host.innerHTML = `<div class="callout info">${icon('shield')}<div class="small">${esc(t('role_permissions_help'))}</div></div>
+      <div class="card" style="margin-top:14px"><div class="card-h"><div class="field" style="min-width:220px"><label for="perm-role">${esc(t('role'))}</label>
+        <select class="input" id="perm-role">${editable.map((r) => `<option value="${r}" ${r === role ? 'selected' : ''}>${esc(t('r_' + r))}${RETIRED.includes(r) ? ' · ' + esc(t('role_retired')) : ''}</option>`).join('')}</select></div></div>
+        <div class="card-b perm-grid" id="perm-grid"></div></div>`;
+    host.querySelector('#perm-role').onchange = (e) => { role = e.target.value; paintPerms(); };
+    host.querySelector('#perm-grid').addEventListener('change', async (e) => {
+      const cb = e.target.closest('[data-perm]'); if (!cb) return;
+      cb.disabled = true;
+      try {
+        await rpc('admin_set_role_permission', { p_role: role, p_permission: cb.dataset.perm, p_enabled: cb.checked });
+        if (cb.checked) matrix.push({ role, permission: cb.dataset.perm });
+        else { const i = matrix.findIndex((m) => m.role === role && m.permission === cb.dataset.perm); if (i >= 0) matrix.splice(i, 1); }
+        toast(t('saved'));
+      } catch (err) { cb.checked = !cb.checked; toast(errText(err), 'err'); }
+      finally { cb.disabled = false; }
+    });
+    paintPerms();
   };
 
   // ───────── staff ─────────
   const staffPane = (list) => `
-    <div class="callout info">${icon('shield')}<div class="small">${esc(t('segregation_note'))}</div></div>
-    <div class="card" style="margin-top:14px"><div class="table-wrap"><table class="t"><thead><tr>
+    ${admin ? `<div class="callout info">${icon('shield')}<div class="small">${esc(t('segregation_note'))}</div></div>` : ''}
+    <div class="row staff-filters" style="margin-top:14px;gap:10px;flex-wrap:wrap">
+      <div class="search" style="flex:1;min-width:200px;max-width:360px">${icon('search')}<input class="input" id="name-filter" type="search" placeholder="${esc(t('search'))}" aria-label="${esc(t('search'))}" value="${esc(nameFilter)}"></div>
+      <select class="input" id="role-filter" aria-label="${esc(t('filter_role'))}" style="max-width:240px"><option value="">${esc(t('all_roles'))}</option>
+        ${presentRoles.map((r) => `<option value="${r}" ${r === roleFilter ? 'selected' : ''}>${esc(t('r_' + r))}</option>`).join('')}</select>
+    </div>
+    ${staffTable(list)}`;
+  const staffTable = (list) => `
+    <div class="card" id="staff-list" style="margin-top:14px"><div class="table-wrap cards-m"><table class="t"><thead><tr>
       <th>${esc(t('name'))}</th><th>${esc(t('role'))}</th><th>${esc(t('branch'))}</th>
       <th>${esc(t('status'))}</th><th class="hide-m">${esc(t('special_access'))}</th><th class="hide-m">${esc(t('created'))}</th></tr></thead>
     <tbody>${list.map((u) => {
       const mine = live.filter((g) => g.user_id === u.id);
-      return `<tr class="click" data-id="${u.id}">
+      return `<tr class="${admin ? 'click' : ''}" data-id="${u.id}">
         <td><b>${esc(u.full_name || '—')}</b><div class="muted small">${esc(u.email)}</div></td>
         <td>${esc(t('r_' + u.role))}${RETIRED.includes(u.role) ? ` <span class="badge s-pending_deposit" title="${esc(t('role_retired_hint'))}">${esc(t('role_retired'))}</span>` : ''}</td>
         <td>${esc(u.branch_code || '—')}</td>
         <td>${u.active ? `<span class="badge s-ready">${esc(t('active'))}</span>` : `<span class="badge s-cancelled">${esc(t('inactive'))}</span>`}</td>
         <td class="hide-m small">${mine.length ? mine.map((g) => `<span class="badge s-booked">${esc(t('p_' + g.permission.replace('.', '_')))}</span>`).join(' ') : '<span class="muted">—</span>'}</td>
         <td class="hide-m muted small">${fdate(u.created_at)}</td></tr>`;
-    }).join('')}</tbody></table></div></div>`;
+    }).join('')}</tbody></table></div>
+    <div class="list-cards">${list.map((u) => `<div class="lc ${admin ? 'click' : ''}" data-id="${u.id}"><div class="top"><b>${esc(u.full_name || u.email)}</b>
+      ${u.active ? `<span class="badge s-ready">${esc(t('active'))}</span>` : `<span class="badge s-cancelled">${esc(t('inactive'))}</span>`}</div>
+      <div class="sub">${esc(t('r_' + u.role))}${RETIRED.includes(u.role) ? ` · ${esc(t('role_retired'))}` : ''}${u.branch_code ? ' · ' + esc(u.branch_code) : ''}</div>
+      <div class="sub">${esc(u.email || '')}${u.phone ? ' · ' + esc(u.phone) : ''}</div></div>`).join('') || `<div class="lc muted">${esc(t('nothing_here'))}</div>`}</div></div>`;
 
   // ───────── special access ─────────
   const accessPane = (all, active) => `
@@ -96,14 +158,14 @@ export async function render({ el, setTitle, query, rerender }) {
     <tbody>${list.map((i) => `<tr>
       <td><b>${esc(i.email)}</b><div class="muted small">${esc(i.full_name || '')}</div></td>
       <td>${esc(t('r_' + i.role))}</td><td>${esc(i.branch_code || '—')}</td>
-      <td>${i.used_at ? `<span class="badge s-ready">${esc(t('joined'))}</span>` : `<span class="badge s-booked">${esc(t('waiting_signup'))}</span>`}</td>
-      <td class="num">${i.used_at ? '' : `<button class="btn small danger" data-cancel="${i.id}">${esc(t('cancel'))}</button>`}</td>
+      <td>${i.accepted_at ? `<span class="badge s-ready">${esc(t('joined'))}</span>` : `<span class="badge s-booked">${esc(t('waiting_signup'))}</span>`}</td>
+      <td class="num">${i.accepted_at ? '' : `<button class="btn small danger" data-cancel="${i.id}">${esc(t('cancel'))}</button>`}</td>
     </tr>`).join('')}</tbody></table></div>
     <div class="card-b muted small">${esc(t('invite_help'))}</div></div>` : empty(t('no_invites'), 'users');
 
   // ───────── actions ─────────
   $('#tabs', el).onclick = (e) => { const c = e.target.closest('.chip'); if (!c) return; tab = c.dataset.tab; paint(); };
-  $('#invite', el).onclick = () => inviteModal(rerender);
+  if (admin) $('#invite', el).onclick = () => inviteModal(rerender);
 
   el.addEventListener('click', async (e) => {
     const g = e.target.closest('#grant');
@@ -126,8 +188,8 @@ export async function render({ el, setTitle, query, rerender }) {
       return;
     }
 
-    const tr = e.target.closest('tr[data-id]');
-    if (tr) staffModal(rows.find((x) => x.id === tr.dataset.id), live, rerender);
+    const tr = e.target.closest('tr[data-id], .lc[data-id]');
+    if (tr && admin) staffModal(rows.find((x) => x.id === tr.dataset.id), live, rerender);
   });
 
   paint();
@@ -147,7 +209,7 @@ function inviteModal(after) {
       <form class="form" id="inv" novalidate>
         <div class="field full"><label class="req">${esc(t('email'))}</label><input class="input" name="email" type="email" required autocomplete="off"></div>
         <div class="field"><label>${esc(t('full_name'))}</label><input class="input" name="full_name"></div>
-        <div class="field"><label class="req">${esc(t('role'))}</label><select class="input" name="role">${roleOptions('counter')}</select></div>
+        <div class="field"><label class="req">${esc(t('role'))}</label><select class="input" name="role">${roleOptions('customer_care')}</select></div>
         <div class="field"><label>${esc(t('branch'))}</label><select class="input" name="branch_code"><option value="">—</option>
           ${state.branches.map((b) => `<option value="${b.code}">${esc(b.code)} · ${esc(b.name)}</option>`).join('')}</select></div>
       </form>`,
