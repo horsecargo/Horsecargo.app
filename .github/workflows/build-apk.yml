@@ -1,84 +1,86 @@
 name: Build Android APK
 
 on:
+  pull_request:
+    paths: ['android/**', 'package*.json', 'scripts/build-apk.mjs', 'scripts/verify-apk.mjs', 'www/.well-known/assetlinks.json', '.github/workflows/build-apk.yml']
   push:
     branches: [main]
-    paths: ['www/**', 'android/**', 'capacitor.config.json', 'package*.json', '.github/workflows/build-apk.yml']
+    paths: ['android/**', 'package*.json', 'scripts/build-apk.mjs', 'scripts/verify-apk.mjs', 'www/.well-known/assetlinks.json', '.github/workflows/build-apk.yml']
   workflow_dispatch:
+
+permissions:
+  contents: read
 
 jobs:
   apk:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
-      HAS_SUPABASE: ${{ secrets.SUPABASE_URL != '' }}
       HAS_KEYSTORE: ${{ secrets.HC_KEYSTORE_BASE64 != '' }}
+      HC_VERSION_NAME: 2.0.${{ github.run_number }}
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
-
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: 21
           cache: gradle
-
       - uses: android-actions/setup-android@v3
-
-      - name: Install dependencies
-        run: npm ci
-
-      # Optional: write www/config.js from repository secrets instead of committing it
-      - name: Write Supabase config from secrets
-        if: env.HAS_SUPABASE == 'true'
-        env:
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
-          PUBLIC_TRACK_URL: ${{ secrets.PUBLIC_TRACK_URL }}
+        with:
+          # The old default requested the removed SDK package "tools".
+          packages: 'platform-tools platforms;android-36 build-tools;35.0.0'
+      - run: npm ci
+      - name: Set increasing Android version code
+        run: echo "HC_VERSION_CODE=$((20000 + GITHUB_RUN_NUMBER))" >> "$GITHUB_ENV"
+      - name: Build and lint preview APK
+        working-directory: android
         run: |
-          cat > www/config.js <<JS
-          window.HC_CONFIG = {
-            SUPABASE_URL: '${SUPABASE_URL}',
-            SUPABASE_ANON_KEY: '${SUPABASE_ANON_KEY}',
-            PUBLIC_TRACK_URL: '${PUBLIC_TRACK_URL:-https://app.horsecargoltd.com/track.html}',
-            PHOTO_BUCKET: 'cargo-photos',
-          };
-          JS
-
-      - name: Copy web app into Android project
-        run: npx cap sync android
-
-      - name: Decode signing keystore
-        if: env.HAS_KEYSTORE == 'true'
+          chmod +x gradlew
+          ./gradlew :live:assembleDebug :live:lintDebug --no-daemon --console=plain
+      - name: Verify preview signature and live domain
+        run: node scripts/verify-apk.mjs android/live/build/outputs/apk/debug/live-debug.apk --preview
+      - name: Decode stable release keystore
+        if: github.event_name != 'pull_request' && env.HAS_KEYSTORE == 'true'
         env:
           HC_KEYSTORE_BASE64: ${{ secrets.HC_KEYSTORE_BASE64 }}
-        run: echo "$HC_KEYSTORE_BASE64" | base64 -d > $RUNNER_TEMP/horse-cargo.jks
-
-      - name: Build APKs
+        run: |
+          umask 077
+          printf '%s' "$HC_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/horse-cargo.jks"
+      - name: Build signed release APK
+        if: github.event_name != 'pull_request' && env.HAS_KEYSTORE == 'true'
         working-directory: android
         env:
-          HC_KEYSTORE_PATH: ${{ secrets.HC_KEYSTORE_BASE64 != '' && format('{0}/horse-cargo.jks', runner.temp) || '' }}
+          HC_KEYSTORE_PATH: ${{ runner.temp }}/horse-cargo.jks
           HC_KEYSTORE_PASSWORD: ${{ secrets.HC_KEYSTORE_PASSWORD }}
           HC_KEY_ALIAS: ${{ secrets.HC_KEY_ALIAS }}
           HC_KEY_PASSWORD: ${{ secrets.HC_KEY_PASSWORD }}
-        run: |
-          chmod +x gradlew
-          ./gradlew assembleDebug assembleRelease --no-daemon
-
-      - name: Rename outputs
+        run: ./gradlew :live:assembleRelease --no-daemon --console=plain
+      - name: Verify stable signing certificate against website
+        if: github.event_name != 'pull_request' && env.HAS_KEYSTORE == 'true'
+        run: node scripts/verify-apk.mjs android/live/build/outputs/apk/release/live-release.apk
+      - name: Collect installable APKs
         run: |
           mkdir -p dist
-          cp android/app/build/outputs/apk/debug/app-debug.apk dist/horse-cargo-debug-${{ github.run_number }}.apk
-          cp android/app/build/outputs/apk/release/*.apk dist/ 2>/dev/null || true
-          ls -la dist
-
+          cp android/live/build/outputs/apk/debug/live-debug.apk dist/horse-cargo-preview.apk
+          if [ -f android/live/build/outputs/apk/release/live-release.apk ]; then
+            cp android/live/build/outputs/apk/release/live-release.apk dist/horse-cargo.apk
+          fi
+          sha256sum dist/*.apk > dist/SHA256SUMS.txt
+          if [ "$HAS_KEYSTORE" != 'true' ]; then
+            echo 'Preview only: configure the four HC_KEYSTORE signing secrets for stable releases.' >> "$GITHUB_STEP_SUMMARY"
+          fi
       - uses: actions/upload-artifact@v4
         with:
           name: horse-cargo-apk-${{ github.run_number }}
-          path: dist/*.apk
-          retention-days: 30
-
+          path: |
+            dist/*.apk
+            dist/SHA256SUMS.txt
+            android/live/build/reports/lint-results-debug.html
+          retention-days: 90
+      - name: Remove temporary signing material
+        if: always()
+        run: rm -f "$RUNNER_TEMP/horse-cargo.jks"

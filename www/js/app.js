@@ -3,6 +3,7 @@ import { sb, configured, state, loadSession, loadReference, errText, can, canAny
 import { refreshMailBadge, mailBadge } from './mailbadge.js';
 import { icon, esc, toast, $ } from './ui.js';
 import { navGroups, groupItems, navTools, groupForNav, primaryGroup, groupedMenu, openMenuGroup } from './navigation.js';
+import { startUpdates } from './updates.js';
 
 // [pattern, page module, nav key, permission(s) required — any of them]
 // Detail pages without a permission rely on the database to refuse what the user may not see.
@@ -303,9 +304,7 @@ document.addEventListener('click', async (e) => {
 window.addEventListener('hashchange', route);
 if (sb) sb.auth.onAuthStateChange((ev) => { if (ev === 'SIGNED_OUT' && state.profile) { state.profile = null; renderLogin(); } });
 
-if ('serviceWorker' in navigator && location.protocol.startsWith('http') && !location.hostname.match(/^(localhost|127\.)/)) {
-  navigator.serviceWorker.register('sw.js').catch(() => {});
-}
+startUpdates();
 window.addEventListener('unhandledrejection', (e) => { console.error(e.reason); toast(errText(e.reason), 'err'); });
 
 boot();

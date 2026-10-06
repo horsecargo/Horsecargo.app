@@ -1,0 +1,14 @@
+[
+  {
+    "relation": [
+      "delegate_permission/common.handle_all_urls"
+    ],
+    "target": {
+      "sha256_cert_fingerprints": [
+        "36:5C:B1:77:77:43:B0:22:89:3B:38:FC:D1:8B:EA:12:13:62:9D:E5:BA:FB:EB:2F:0E:E2:1B:31:2F:A0:E0:4E"
+      ],
+      "namespace": "android_app",
+      "package_name": "com.horsecargoltd.app"
+    }
+  }
+]

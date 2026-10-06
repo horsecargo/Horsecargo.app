@@ -1,7 +1,8 @@
 [build]
   publish = "www"
+  command = "node scripts/stamp-web-release.mjs"
 
 [[headers]]
-  for = "/sw.js"
+  for = "/*"
   [headers.values]
     Cache-Control = "no-cache"

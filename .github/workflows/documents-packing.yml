@@ -26,6 +26,8 @@ jobs:
       - run: npx playwright install --with-deps chromium
       - name: Verify JavaScript syntax
         run: find www/js -name '*.js' -exec sh -c 'node --input-type=module --check < "$1"' _ {} \;
+      - name: Verify safe web updates and offline release fallback
+        run: node test/updates_e2e.mjs
       - run: npm run test:setup
       - name: Start isolated adapter
         run: |

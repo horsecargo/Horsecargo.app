@@ -46,6 +46,7 @@ node test/v6_test.mjs
 node test/v5_e2e.mjs
 node test/v6_e2e.mjs
 node test/navigation_e2e.mjs
+node test/updates_e2e.mjs
 ```
 
 `v6_test.mjs` — role defaults and the editable permission matrix (incl. edits surviving a rerun), automatic QR tokens, scan resolution for GRN / invoice / packing list / label, typed numbers, legacy labels, foreign/tampered codes, revoke & replace, public verification without money, leads (every role, numbering under concurrency, visibility, assignment, history, duplicate-safe conversion incl. a simultaneous double convert), sourcing workflow, staff mail between users (threads, CC, read receipts, unread counts, archive/trash, outsiders blocked), global search permissions and direct-table write denial.
