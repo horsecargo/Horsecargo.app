@@ -101,7 +101,8 @@ export async function render({ el, params, setTitle, rerender }) {
             : empty(t('no_payments'), 'money')}
         </div>
 
-        ${grn ? `<div class="card"><div class="card-h"><h2>${esc(t('grn'))}</h2><a class="btn sm" href="#/doc/grn/${s.id}">${icon('print')}${esc(t('print'))}</a></div>
+        ${grn ? `<div class="card"><div class="card-h"><h2>${esc(t('grn'))}</h2><div class="row" style="gap:6px"><a class="btn sm" href="#/doc/grn/${s.id}">${icon('print')}${esc(t('print'))}</a>
+          ${can('label.read') ? `<a class="btn sm" href="#/doc/labels/${s.id}">${icon('tag')}${esc(t('cargo_labels'))}</a>` : ''}</div></div>
           <div class="card-b"><div class="money">
             <div><div class="k">${esc(t('pieces'))}</div><div class="v">${num(grn.pieces, 0)}</div></div>
             <div><div class="k">CBM</div><div class="v">${num(grn.total_cbm, 3)}</div></div>
@@ -154,9 +155,10 @@ export async function render({ el, params, setTitle, rerender }) {
             ${s.notes ? `<dt>${esc(t('notes'))}</dt><dd>${esc(s.notes)}</dd>` : ''}
           </dl></div>
           <div class="card-b row" style="gap:8px;flex-wrap:wrap;border-top:1px solid var(--line-2)">
-            <a class="btn sm" href="#/doc/invoice/${s.id}">${icon('print')}${esc(t('invoice'))}</a>
-            <a class="btn sm" href="#/doc/label/${s.id}">${icon('tag')}${esc(t('print_labels'))}</a>
-            ${rel ? `<a class="btn sm" href="#/doc/release/${rel.id}">${icon('print')}${esc(t('release_note'))}</a>` : ''}
+            ${grn && can('grn.read') ? `<a class="btn sm" href="#/doc/grn/${s.id}">${icon('print')}GRN</a>` : ''}
+            ${grn && can('label.read') ? `<a class="btn sm" href="#/doc/labels/${s.id}">${icon('tag')}${esc(t('cargo_labels'))}</a>` : ''}
+            ${can('invoice.read') ? `<a class="btn sm" href="#/doc/invoice/${s.id}">${icon('print')}${esc(t('invoice'))}</a>` : ''}
+            ${rel ? `<a class="btn sm" href="#/doc/release/${s.id}">${icon('print')}${esc(t('release_note'))}</a>` : ''}
             <a class="btn sm" target="_blank" rel="noopener" href="${esc(whatsappLink(s.receiver_phone, trackMsg(s)))}">${icon('whatsapp')}${esc(t('share_whatsapp'))}</a>
           </div>
         </div>
@@ -181,7 +183,8 @@ export async function render({ el, params, setTitle, rerender }) {
   const loadDocs = async () => {
     const box = $('#docs', el); if (!box) return;
     try {
-      const types = [['invoice', s.invoice_id], ['grn', s.grn_id]];
+      // workflow order: GRN → Cargo Labels → Invoice → (delivery note, receipts)
+      const types = [['grn', s.grn_id], ['label', s.grn_id ? s.id : null], ['invoice', s.invoice_id]];
       if (rel) types.push(['release', rel.id]);
       receipts.filter((r) => !r.void).forEach((r) => types.push(['receipt', r.id]));
       const rows = [];
@@ -189,16 +192,16 @@ export async function render({ el, params, setTitle, rerender }) {
         if (!did) continue;
         try { rows.push({ type, id: did, ...(await rpc('doc_register', { p_type: type, p_doc_id: did })) }); } catch { /* skip */ }
       }
-      const DOCHREF = { invoice: `#/doc/invoice/${s.id}`, grn: `#/doc/grn/${s.id}`,
+      const DOCHREF = { invoice: `#/doc/invoice/${s.id}`, grn: `#/doc/grn/${s.id}`, label: `#/doc/labels/${s.id}`,
         release: rel ? `#/doc/release/${s.id}` : '#' };
       box.innerHTML = rows.length ? `<div class="table-wrap"><table class="t"><tbody>${rows.map((d) => `<tr>
         <td><b class="mono">${esc(d.ref)}</b><div class="muted small">${esc(t('doct_' + d.type))}${d.version > 1 ? ` · v${d.version}` : ''}</div></td>
-        <td>${['invoice','grn'].includes(d.type) ? '<span class="badge s-ready">Issued</span>' : docBadge(d.status)}${!['invoice','grn'].includes(d.type) && d.approved_by ? `<div class="muted small">${esc(d.approved_by)}</div>` : ''}</td>
+        <td>${['invoice','grn','label'].includes(d.type) ? `<span class="badge s-ready">${esc(t('dst_issued'))}</span>` : docBadge(d.status)}${!['invoice','grn','label'].includes(d.type) && d.approved_by ? `<div class="muted small">${esc(d.approved_by)}</div>` : ''}</td>
         <td class="right nowrap">
           <a class="icon-btn" href="${d.type === 'receipt' ? `#/doc/receipt/${d.id}` : DOCHREF[d.type]}" title="${esc(t('print'))}">${icon('print')}</a>
           <a class="icon-btn" target="_blank" rel="noopener" href="${esc(verifyUrl(d.token))}" title="${esc(t('verify'))}">${icon('search')}</a>
-          ${!['invoice','grn'].includes(d.type) && can('doc.approve') && d.status !== 'approved' ? `<button class="btn sm primary" data-approve="${d.token}">${esc(t('approve'))}</button>` : ''}
-          ${!['invoice','grn'].includes(d.type) && can('doc.approve') && d.status === 'approved' ? `<button class="btn sm" data-reject="${d.token}">${esc(t('reject'))}</button>` : ''}
+          ${!['invoice','grn','label'].includes(d.type) && can('doc.approve') && d.status !== 'approved' ? `<button class="btn sm primary" data-approve="${d.token}">${esc(t('approve'))}</button>` : ''}
+          ${!['invoice','grn','label'].includes(d.type) && can('doc.approve') && d.status === 'approved' ? `<button class="btn sm" data-reject="${d.token}">${esc(t('reject'))}</button>` : ''}
         </td></tr>`).join('')}</tbody></table></div>`
         : empty(t('nothing_here'), 'print');
     } catch (err) { box.innerHTML = `<div class="card-b"><p class="muted small">${esc(errText(err))}</p></div>`; }

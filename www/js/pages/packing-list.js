@@ -1,6 +1,6 @@
 import { t, getLang } from '../i18n.js';
-import { from, run, rpc, can, errText } from '../api.js';
-import { icon, esc, num, fdate, busy, toast, confirmDialog, $ } from '../ui.js';
+import { from, run, rpc, can, errText, verifyUrl } from '../api.js';
+import { icon, esc, num, fdate, busy, toast, confirmDialog, qrSVG, $ } from '../ui.js';
 
 const T = (en, sw) => getLang() === 'sw' ? sw : en;
 const whole = unit => ['PCS','CTN','BOX','BAG','PALLET','ROLL','SET','DRUM'].includes(unit.toUpperCase());
@@ -32,11 +32,17 @@ export async function render({ el, params, setTitle, rerender }) {
   ]);
   setTitle(list.ref);
   const editable = mayEdit && list.status === 'draft';
+  // every packing list carries its own registry token (issued when the list was created)
+  const reg = await rpc('doc_register', { p_type: 'packing_list', p_doc_id: id }).catch(() => null);
   el.innerHTML = `<div class="page-head"><div class="grow"><a href="#/packing-list">${esc(t('back'))}</a>
     <h1 class="mono">${esc(list.ref)}</h1><p>${fdate(list.packing_date)} · ${esc(list.prepared_by || '—')} · ${esc(list.status)}</p></div>
     <div class="row"><a class="btn" href="#/doc/packing/${id}">${icon('print')}${T('Report / PDF','Ripoti / PDF')}</a>
       ${editable ? `<button class="btn" id="add-box">${icon('plus')}${T('Add Box','Ongeza Sanduku')}</button>
       <button class="btn primary" id="finalize">${T('Finalize','Kamilisha')}</button>` : ''}</div></div>
+    ${reg ? `<div class="card pl-qr"><div class="card-b row" style="gap:14px;flex-wrap:nowrap">
+      <div class="qr-box" style="width:96px;flex:none">${qrSVG(verifyUrl(reg.token), 3)}</div>
+      <div><b class="mono">${esc(list.ref)}</b><div class="muted small">${esc(t('scan_to_identify'))}</div>
+      <div class="small">${list.status === 'draft' ? esc(t('dst_draft')) : esc(t('dst_issued'))}</div></div></div></div>` : ''}
     <p class="muted small">${T('Draft quantities reserve storage stock across all packing lists and existing packing entries. Removing an item restores its availability.','Kiasi katika rasimu kinahifadhi nafasi kwenye stock pamoja na upakiaji wa zamani. Kuondoa item kunarudisha kiasi kinachopatikana.')}</p>
     <div class="stack">${boxes.map(box=>{
       const rows=items.filter(i=>i.box_id===box.id);

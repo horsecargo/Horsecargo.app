@@ -142,7 +142,7 @@ export async function render({ el, params, setTitle }) {
           modal({
             title: r.grn_ref,
             body: `<div class="callout ok">${icon('check')}<div><b>${esc(t('grn_saved'))}</b><br>${r.pieces} pcs${r.cbm ? ` · ${num(r.cbm, 3)} CBM` : ''}${r.kg ? ` · ${num(r.kg, 1)} kg` : ''}</div></div>`,
-            foot: `<a class="btn" data-close href="#/shipment/${b.id}">${esc(t('shipment'))}</a><a class="btn primary" data-close href="#/doc/label/${b.id}">${icon('tag')}${esc(t('print_labels'))}</a>`,
+            foot: `<a class="btn" data-close href="#/shipment/${b.id}">${esc(t('shipment'))}</a><a class="btn primary" data-close href="#/doc/labels/${b.id}">${icon('tag')}${esc(t('print_labels'))}</a>`,
           });
           location.hash = `#/shipment/${b.id}`;
         } catch (err) { toast(errText(err), 'err'); }

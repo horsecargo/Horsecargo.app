@@ -10,9 +10,10 @@ try {
   const shim=(await fs.readFile('test/supabase_shim.sql','utf8')).replace(/create role (\w+) nologin;/g,
     (_,role)=>`do $$ begin create role ${role} nologin; exception when duplicate_object then null; end $$;`);
   await c.query(shim);
-  for(const file of ['schema.sql','seed.sql','accounting-1-roles.sql','accounting-2.sql','shipments-v2.sql','documents-v3.sql','staff-storage-v4.sql','documents-packing-v5.sql'])
+  for(const file of ['schema.sql','seed.sql','accounting-1-roles.sql','accounting-2.sql','shipments-v2.sql','documents-v3.sql','staff-storage-v4.sql','documents-packing-v5.sql','crm-mail-v6-1-roles.sql','crm-mail-v6-2.sql'])
     await c.query(await fs.readFile('supabase/'+file,'utf8'));
   await c.query(await fs.readFile('test/v5_users.sql','utf8'));
   await c.query(await fs.readFile('test/v4_helpers.sql','utf8'));
-  console.log('Isolated test database reset and v1-v5 migrations installed.');
+  await c.query(await fs.readFile('test/v6_users.sql','utf8'));
+  console.log('Isolated test database reset and v1-v6 migrations installed.');
 } finally {await c.end();}

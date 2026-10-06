@@ -79,21 +79,21 @@ export const catName = (row) => (getLang() === 'sw' && row.category_name_sw) ? r
 // state.perms, loaded from the database, is what decides. This table is only a
 // fallback for the moment before it arrives (or if that one call fails).
 const PERMS = {
-  'customer.write': ['manager', 'counter', 'cashier'],
-  'shipment.create': ['manager', 'counter', 'operations', 'warehouse'],
-  'shipment.edit': ['manager', 'counter', 'operations'],
+  'customer.write': ['manager', 'counter', 'cashier', 'operations', 'accountant', 'sales_marketing', 'customer_care'],
+  'shipment.create': ['manager', 'counter', 'operations', 'warehouse', 'logistics'],
+  'shipment.edit': ['manager', 'counter', 'operations', 'logistics'],
   'shipment.cancel': ['manager'],
-  'shipment.status': ['operations', 'manager', 'warehouse', 'counter', 'release_officer'],
+  'shipment.status': ['operations', 'manager', 'warehouse', 'counter', 'release_officer', 'logistics'],
   'payment.record': ['cashier', 'manager', 'counter'],
   'payment.void': ['manager'],
-  'grn.record': ['warehouse', 'manager', 'operations'],
+  'grn.record': ['warehouse', 'manager', 'operations', 'logistics'],
   'charge.add': ['manager', 'counter', 'operations'],
   'charge.discount': ['manager'],
   'charge.remove': ['manager'],
   'rate.override': ['manager'],
   'currency.set': ['manager', 'cashier', 'counter'],
-  'tracking.note': ['operations', 'manager', 'counter', 'warehouse'],
-  'deliver': ['release_officer', 'manager', 'operations', 'counter'],
+  'tracking.note': ['operations', 'manager', 'counter', 'warehouse', 'logistics'],
+  'deliver': ['release_officer', 'manager', 'operations', 'counter', 'logistics'],
   'rates.write': ['manager'],
   'settings.write': ['manager'],
   'audit.read': ['manager'],
@@ -103,10 +103,28 @@ const PERMS = {
   'acc.write': ['accountant', 'finance_manager'],
   'acc.approve': ['finance_manager'],
   'doc.approve': ['manager', 'finance_manager'],
-  'storage.read': ['manager', 'counter', 'warehouse', 'operations', 'cashier', 'accountant', 'release_officer'],
-  'storage.pack': ['manager', 'warehouse', 'operations'],
+  'storage.read': ['manager', 'counter', 'warehouse', 'operations', 'cashier', 'accountant', 'release_officer', 'logistics'],
+  'storage.pack': ['manager', 'warehouse', 'operations', 'logistics'],
   'storage.correct': ['manager'],
   'staff.manage': [],
+  // v6 module permissions (fallback only — the database matrix decides)
+  'shipment.read': ['manager', 'operations', 'accountant', 'logistics', 'sales_marketing', 'customer_care', 'counter', 'warehouse', 'cashier', 'release_officer', 'finance_manager', 'viewer'],
+  'customer.read': ['manager', 'operations', 'accountant', 'sales_marketing', 'sourcing', 'customer_care', 'counter', 'warehouse', 'cashier', 'release_officer', 'finance_manager', 'viewer'],
+  'grn.read': ['manager', 'operations', 'accountant', 'logistics', 'counter', 'warehouse', 'cashier', 'release_officer', 'finance_manager', 'viewer'],
+  'label.read': ['manager', 'operations', 'logistics', 'counter', 'warehouse', 'cashier', 'release_officer', 'finance_manager', 'viewer'],
+  'invoice.read': ['manager', 'accountant', 'counter', 'warehouse', 'cashier', 'release_officer', 'finance_manager', 'viewer'],
+  'payment.read': ['manager', 'accountant', 'counter', 'warehouse', 'cashier', 'release_officer', 'finance_manager', 'viewer'],
+  'packing.read': ['manager', 'operations', 'logistics', 'counter', 'warehouse', 'cashier', 'release_officer', 'finance_manager', 'viewer'],
+  'scan.use': ['manager', 'operations', 'logistics', 'customer_care', 'counter', 'warehouse', 'cashier', 'release_officer', 'finance_manager', 'viewer'],
+  'staff.read': ['manager', 'hr'],
+  'lead.create': ['manager', 'operations', 'hr', 'accountant', 'logistics', 'sales_marketing', 'sourcing', 'customer_care', 'counter', 'warehouse', 'cashier', 'release_officer', 'finance_manager', 'viewer'],
+  'lead.read': ['manager', 'sales_marketing', 'sourcing', 'customer_care', 'counter'],
+  'lead.assign': ['manager'],
+  'lead.convert': ['manager', 'sales_marketing', 'customer_care'],
+  'sourcing.read': ['manager', 'sales_marketing', 'sourcing'],
+  'sourcing.write': ['manager', 'sourcing'],
+  'mail.use': ['manager', 'operations', 'hr', 'accountant', 'logistics', 'sales_marketing', 'sourcing', 'customer_care', 'counter', 'warehouse', 'cashier', 'release_officer', 'finance_manager', 'viewer'],
+  'doc.revoke': ['manager'],
 };
 export function can(action) {
   const r = state.profile?.role;
@@ -115,6 +133,7 @@ export function can(action) {
   if (Array.isArray(state.perms)) return state.perms.includes(action);
   return (PERMS[action] || []).includes(r);
 }
+export const canAny = (...actions) => actions.some((a) => can(a));
 export const hasGranted = (action) =>
   Array.isArray(state.perms) && state.perms.includes(action) && !(PERMS[action] || []).includes(state.profile?.role);
 export const isAdmin = () => state.profile?.role === 'admin' && state.profile?.active;

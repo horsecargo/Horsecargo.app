@@ -50,7 +50,8 @@
       var esc = function (v) { return String(v == null ? '' : v).replace(/[&<>"']/g, function (c) {
         return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]; }); };
       var TYPE = { invoice: 'Invoice', receipt: 'Payment receipt', grn: 'Goods Received Note',
-                   release: 'Delivery note', waybill: 'Shipment confirmation' };
+                   release: 'Delivery note', waybill: 'Shipment confirmation', packing_list: 'Packing list',
+                   label: 'Cargo label' };
       var token = new URLSearchParams(location.search).get('d') || '';
 
       function fdt(v) {
@@ -81,9 +82,18 @@
                'It may have been cancelled, or the code may be mistyped.</p>');
           return;
         }
-        var cls = d.status === 'issued' || d.status === 'approved' ? 'ok' : d.status === 'pending' ? 'wait' : 'no';
-        var label = d.status === 'issued' ? 'Issued — no approval required' : d.status === 'approved' ? 'Approved' : d.status === 'pending' ? 'Pending approval'
-                  : d.status === 'rejected' ? 'Rejected' : 'Void';
+        var cls = d.status === 'issued' || d.status === 'approved' ? 'ok' : d.status === 'pending' || d.status === 'draft' ? 'wait' : 'no';
+        var label = d.status === 'issued' ? 'Genuine — issued by Horse Cargo' : d.status === 'approved' ? 'Approved' : d.status === 'pending' ? 'Pending approval'
+                  : d.status === 'draft' ? 'Genuine — draft (not yet finalized)'
+                  : d.status === 'revoked' ? 'This QR code has been revoked' : d.status === 'rejected' ? 'Rejected' : 'Void';
+        if (d.status === 'revoked') {
+          show('<div class="vstat no">' + esc(label) + '</div>' +
+               '<div class="vbig" style="margin:16px 0 4px">' + esc(d.document_no || '') + '</div>' +
+               '<div class="muted small" style="margin-bottom:10px">' + esc(TYPE[d.document_type] || d.document_type) + '</div>' +
+               '<p class="muted small">This printed copy is no longer valid. Ask Horse Cargo for the current document.</p>' +
+               row('Revoked', fdt(d.revoked_at)) + row('Checked at', fdt(d.checked_at)));
+          return;
+        }
         var html = '<div class="vstat ' + cls + '">' + esc(label) + '</div>';
         if (d.retired) html += '<p class="muted small">Historical document — retired from the active workflow.</p>';
         if (d.superseded) {
@@ -92,7 +102,7 @@
         }
         html += '<div class="vbig" style="margin:16px 0 4px">' + esc(d.document_no || '') + '</div>' +
                 '<div class="muted small" style="margin-bottom:10px">' + esc(TYPE[d.document_type] || d.document_type) + '</div>' +
-                row('Shipment', d.shipment_ref || '—') +
+                (d.shipment_ref ? row('Shipment', d.shipment_ref) : '') +
                 row('Issued', fdt(d.issued_at)) +
                 row('Version', d.version) +
                 (d.approved_by ? row('Approved by', d.approved_by) : '') +

@@ -1,63 +1,86 @@
 import { t, getLang, setLang } from './i18n.js';
-import { sb, configured, state, loadSession, loadReference, errText, can, isAdmin } from './api.js';
+import { sb, configured, state, loadSession, loadReference, errText, can, canAny, isAdmin } from './api.js';
+import { refreshMailBadge, mailBadge } from './mailbadge.js';
 import { icon, esc, toast, $ } from './ui.js';
 
+// [pattern, page module, nav key, permission(s) required — any of them]
+// Detail pages without a permission rely on the database to refuse what the user may not see.
 const ROUTES = [
   [/^\/?$/, 'dashboard', 'dashboard'],
-  [/^\/shipments\/new$/, 'shipment-new', 'shipments'],
-  [/^\/shipments$/, 'shipments', 'shipments'],
-  [/^\/shipment\/([\w-]+)\/edit$/, 'shipment-new', 'shipments'],
-  [/^\/shipment\/([\w-]+)\/grn$/, 'grn', 'shipments'],
+  [/^\/shipments\/new$/, 'shipment-new', 'shipments', 'shipment.create'],
+  [/^\/shipments$/, 'shipments', 'shipments', 'shipment.read'],
+  [/^\/shipment\/([\w-]+)\/edit$/, 'shipment-new', 'shipments', 'shipment.edit'],
+  [/^\/shipment\/([\w-]+)\/grn$/, 'grn', 'grn_register', 'grn.record'],
   [/^\/shipment\/([\w-]+)$/, 'shipment', 'shipments'],
-  [/^\/storage$/, 'storage', 'storage'],
-  [/^\/storage\/([\w-]+)$/, 'storage-shipment', 'storage'],
-  [/^\/packing-list\/([\w-]+)$/, 'packing-list', 'packing_list'],
-  [/^\/packing-list$/, 'packing-list', 'packing_list'],
-  [/^\/customers$/, 'customers', 'customers'],
+  [/^\/grn$/, 'grn-register', 'grn_register', 'grn.read'],
+  [/^\/labels$/, 'labels', 'cargo_labels', 'label.read'],
+  [/^\/invoices$/, 'invoices', 'invoices', 'invoice.read'],
+  [/^\/payments$/, 'payments', 'payments', 'payment.read'],
+  [/^\/storage$/, 'storage', 'storage', 'storage.read'],
+  [/^\/storage\/([\w-]+)$/, 'storage-shipment', 'storage', 'storage.read'],
+  [/^\/packing-list\/([\w-]+)$/, 'packing-list', 'packing_list', 'packing.read'],
+  [/^\/packing-list$/, 'packing-list', 'packing_list', 'packing.read'],
+  [/^\/customers$/, 'customers', 'customers', 'customer.read'],
   [/^\/customer\/([\w-]+)$/, 'customer', 'customers'],
-  [/^\/scan$/, 'scan', 'scan'],
+  [/^\/leads$/, 'leads', 'leads', ['lead.create', 'lead.read']],
+  [/^\/lead\/([\w-]+)$/, 'lead', 'leads'],
+  [/^\/sourcing$/, 'sourcing', 'sourcing', ['sourcing.read', 'sourcing.write']],
+  [/^\/sourcing\/([\w-]+)$/, 'sourcing-item', 'sourcing'],
+  [/^\/mail$/, 'mail', 'staff_mail', 'mail.use'],
+  [/^\/mail\/([\w-]+)$/, 'mail', 'staff_mail', 'mail.use'],
+  [/^\/scan$/, 'scan', 'scan', 'scan.use'],
+  [/^\/search$/, 'search', null],
   [/^\/rates$/, 'rates', 'rates'],
-  [/^\/reports$/, 'reports', 'reports'],
-  [/^\/users$/, 'users', 'users'],
+  [/^\/reports$/, 'reports', 'reports', 'reports.read'],
+  [/^\/users$/, 'users', 'users', ['users.manage', 'staff.read']],
   [/^\/settings$/, 'settings', 'settings'],
   [/^\/profile$/, 'profile', 'profile'],
-  [/^\/audit$/, 'audit', 'audit'],
+  [/^\/audit$/, 'audit', 'audit', 'audit.read'],
   [/^\/more$/, 'more', 'more'],
   [/^\/doc\/(\w+)\/([\w-]+)$/, 'doc', null],
-  [/^\/acc$/, 'acc', 'acc'],
-  [/^\/acc\/bills$/, 'acc-bills', 'acc_bills'],
-  [/^\/acc\/bills\/new$/, 'acc-bill-new', 'acc_bills'],
-  [/^\/acc\/bill\/([\w-]+)$/, 'acc-bill', 'acc_bills'],
-  [/^\/acc\/expenses$/, 'acc-expenses', 'acc_expenses'],
-  [/^\/acc\/journals$/, 'acc-journals', 'acc_journals'],
-  [/^\/acc\/coa$/, 'acc-coa', 'acc_coa'],
-  [/^\/acc\/account\/(\w+)$/, 'acc-account', 'acc_coa'],
-  [/^\/acc\/money$/, 'acc-money', 'acc_money'],
-  [/^\/acc\/suppliers$/, 'acc-suppliers', 'acc_suppliers'],
-  [/^\/acc\/reports$/, 'acc-reports', 'acc_reports'],
+  [/^\/acc$/, 'acc', 'acc', 'acc.read'],
+  [/^\/acc\/bills$/, 'acc-bills', 'acc_bills', 'acc.read'],
+  [/^\/acc\/bills\/new$/, 'acc-bill-new', 'acc_bills', 'acc.read'],
+  [/^\/acc\/bill\/([\w-]+)$/, 'acc-bill', 'acc_bills', 'acc.read'],
+  [/^\/acc\/expenses$/, 'acc-expenses', 'acc_expenses', 'acc.read'],
+  [/^\/acc\/journals$/, 'acc-journals', 'acc_journals', 'acc.read'],
+  [/^\/acc\/coa$/, 'acc-coa', 'acc_coa', 'acc.read'],
+  [/^\/acc\/account\/(\w+)$/, 'acc-account', 'acc_coa', 'acc.read'],
+  [/^\/acc\/money$/, 'acc-money', 'acc_money', 'acc.read'],
+  [/^\/acc\/suppliers$/, 'acc-suppliers', 'acc_suppliers', 'acc.read'],
+  [/^\/acc\/reports$/, 'acc-reports', 'acc_reports', 'acc.read'],
 ];
+export const routeAllowed = (perm) => !perm || (Array.isArray(perm) ? canAny(...perm) : can(perm));
 
 function navItems() {
+  const acc = can('acc.read') && state.companies.length > 0;
   const items = [
     { key: 'dashboard', href: '#/', ic: 'dashboard' },
-    { key: 'shipments', href: '#/shipments', ic: 'box' },
+    { key: 'customers', href: '#/customers', ic: 'users', show: can('customer.read') },
+    { key: 'leads', href: '#/leads', ic: 'target', show: canAny('lead.create', 'lead.read') },
+    { key: 'sourcing', href: '#/sourcing', ic: 'globe', show: canAny('sourcing.read', 'sourcing.write') },
+    { key: 'shipments', href: '#/shipments', ic: 'box', show: can('shipment.read') },
+    { key: 'grn_register', href: '#/grn', ic: 'scale', show: can('grn.read') },
+    { key: 'cargo_labels', href: '#/labels', ic: 'tag', show: can('label.read') },
+    { key: 'invoices', href: '#/invoices', ic: 'file', show: can('invoice.read') },
+    { key: 'payments', href: '#/payments', ic: 'receipt', show: can('payment.read') },
     { key: 'storage', href: '#/storage', ic: 'warehouse', show: can('storage.read') },
-    { key: 'packing_list', href: '#/packing-list', ic: 'clipboard' },
-    { key: 'customers', href: '#/customers', ic: 'users' },
-    { key: 'scan', href: '#/scan', ic: 'scan' },
-    { sep: true, label: 'accounting', show: can('acc.read') && state.companies.length > 0 },
-    { key: 'acc', href: '#/acc', ic: 'money', show: can('acc.read') && state.companies.length > 0 },
-    { key: 'acc_bills', href: '#/acc/bills', ic: 'list', show: can('acc.read') && state.companies.length > 0 },
-    { key: 'acc_expenses', href: '#/acc/expenses', ic: 'truck', show: can('acc.read') && state.companies.length > 0 },
-    { key: 'acc_journals', href: '#/acc/journals', ic: 'scale', show: can('acc.read') && state.companies.length > 0 },
-    { key: 'acc_reports', href: '#/acc/reports', ic: 'chart', show: can('acc.read') && state.companies.length > 0 },
-    { key: 'acc_coa', href: '#/acc/coa', ic: 'tag', show: can('acc.read') && state.companies.length > 0 },
-    { key: 'acc_money', href: '#/acc/money', ic: 'shield', show: can('acc.read') && state.companies.length > 0 },
-    { key: 'acc_suppliers', href: '#/acc/suppliers', ic: 'users', show: can('acc.read') && state.companies.length > 0 },
-    { sep: true, label: 'admin' },
+    { key: 'packing_list', href: '#/packing-list', ic: 'clipboard', show: can('packing.read') },
+    { key: 'scan', href: '#/scan', ic: 'scan', show: can('scan.use') },
+    { key: 'staff_mail', href: '#/mail', ic: 'mail', show: can('mail.use'), badge: 'mail' },
     { key: 'reports', href: '#/reports', ic: 'chart', show: can('reports.read') },
+    { sep: true, label: 'accounting', show: acc },
+    { key: 'acc', href: '#/acc', ic: 'money', show: acc },
+    { key: 'acc_bills', href: '#/acc/bills', ic: 'list', show: acc },
+    { key: 'acc_expenses', href: '#/acc/expenses', ic: 'truck', show: acc },
+    { key: 'acc_journals', href: '#/acc/journals', ic: 'scale', show: acc },
+    { key: 'acc_reports', href: '#/acc/reports', ic: 'chart', show: acc },
+    { key: 'acc_coa', href: '#/acc/coa', ic: 'tag', show: acc },
+    { key: 'acc_money', href: '#/acc/money', ic: 'shield', show: acc },
+    { key: 'acc_suppliers', href: '#/acc/suppliers', ic: 'users', show: acc },
+    { sep: true, label: 'admin' },
+    { key: 'users', href: '#/users', ic: 'shield', show: isAdmin() || can('staff.read') },
     { key: 'rates', href: '#/rates', ic: 'tag' },
-    { key: 'users', href: '#/users', ic: 'shield', show: isAdmin() },
     { key: 'audit', href: '#/audit', ic: 'list', show: can('audit.read') },
     { key: 'settings', href: '#/settings', ic: 'gear' },
   ];
@@ -71,6 +94,27 @@ function langToggle() {
     <button data-lang="sw" class="${getLang() === 'sw' ? 'on' : ''}">SW</button></div>`;
 }
 
+// phone bottom bar: Home · two permitted modules · Scan (or Mail) · More
+function bottomNav() {
+  const centre = can('scan.use') ? { key: 'scan', href: '#/scan', ic: 'scan', label: t('scan') }
+    : can('mail.use') ? { key: 'staff_mail', href: '#/mail', ic: 'mail', label: t('mail_short') } : null;
+  const pool = [
+    { key: 'shipments', href: '#/shipments', ic: 'box', ok: can('shipment.read') },
+    { key: 'customers', href: '#/customers', ic: 'users', ok: can('customer.read') },
+    { key: 'leads', href: '#/leads', ic: 'target', ok: canAny('lead.create', 'lead.read') },
+    { key: 'sourcing', href: '#/sourcing', ic: 'globe', ok: canAny('sourcing.read', 'sourcing.write') },
+    { key: 'staff_mail', href: '#/mail', ic: 'mail', ok: can('mail.use') },
+  ].filter((x) => x.ok && x.key !== centre?.key).slice(0, 2);
+  const a = (x) => `<a href="${x.href}" data-nav="${x.key}">${icon(x.ic)}<span>${esc(x.key === 'staff_mail' ? t('mail_short') : t(x.key))}</span>${x.key === 'staff_mail' ? mailBadge() : ''}</a>`;
+  return [
+    `<a href="#/" data-nav="dashboard">${icon('dashboard')}<span>${esc(t('home'))}</span></a>`,
+    pool[0] ? a(pool[0]) : '<span></span>',
+    centre ? `<a href="${centre.href}" data-nav="${centre.key}" class="scan"><span class="ic">${icon(centre.ic)}${centre.key === 'staff_mail' ? mailBadge() : ''}</span><span class="tx">${esc(centre.label)}</span></a>` : '<span></span>',
+    pool[1] ? a(pool[1]) : '<span></span>',
+    `<a href="#/more" data-nav="more">${icon('menu')}<span>${esc(t('more'))}</span></a>`,
+  ].join('');
+}
+
 function renderShell() {
   const p = state.profile;
   $('#app').innerHTML = `
@@ -78,7 +122,7 @@ function renderShell() {
     <aside class="sidebar">
       <div class="side-logo"><img src="img/logo-white.png" alt="Horse Cargo"></div><div class="side-branches">DUBAI · DAR ES SALAAM · MWANZA</div>
       <nav class="nav">${navItems().map((i) => i.sep ? `<div class="sep"></div><div class="nav-label">${esc(t(i.label))}</div>` :
-        `<a href="${i.href}" data-nav="${i.key}">${icon(i.ic)}<span>${esc(t(i.key))}</span></a>`).join('')}</nav>
+        `<a href="${i.href}" data-nav="${i.key}">${icon(i.ic)}<span>${esc(t(i.key))}</span>${i.badge ? mailBadge() : ''}</a>`).join('')}</nav>
       <div class="side-foot">
         <a href="#/profile" class="who" style="display:block;color:#fff">${esc(p.full_name || p.email)}</a>
         <div class="role">${esc(t('r_' + p.role))}${p.branch_code ? ' · ' + esc(p.branch_code) : ''}</div>
@@ -91,17 +135,13 @@ function renderShell() {
         <button class="icon-btn back-btn hidden" data-back aria-label="${esc(t('back'))}">${icon('arrowLeft')}</button>
         <img class="mobile-brand" src="img/mark-white.png" alt="Horse Cargo">
         <div class="title" id="page-title"></div>
+        <a class="icon-btn top-act" href="#/search" title="${esc(t('search'))}" aria-label="${esc(t('search'))}">${icon('search')}</a>
+        ${can('mail.use') ? `<a class="icon-btn top-act mail-btn" href="#/mail" title="${esc(t('staff_mail'))}" aria-label="${esc(t('staff_mail'))}">${icon('mail')}${mailBadge()}</a>` : ''}
         <span class="hide-desktop-lang">${langToggle()}</span>
       </header>
       <main class="content" id="page"></main>
     </div>
-    <nav class="bottom-nav">
-      <a href="#/" data-nav="dashboard">${icon('dashboard')}<span>${esc(t('home'))}</span></a>
-      <a href="#/shipments" data-nav="shipments">${icon('box')}<span>${esc(t('shipments'))}</span></a>
-      <a href="#/scan" data-nav="scan" class="scan"><span class="ic">${icon('scan')}</span><span class="tx">${esc(t('scan'))}</span></a>
-      <a href="#/customers" data-nav="customers">${icon('users')}<span>${esc(t('customers'))}</span></a>
-      <a href="#/more" data-nav="more">${icon('menu')}<span>${esc(t('more'))}</span></a>
-    </nav>
+    <nav class="bottom-nav">${bottomNav()}</nav>
   </div>`;
   // desktop: language toggle lives in sidebar
   const mq = window.matchMedia('(min-width: 861px)');
@@ -122,16 +162,22 @@ async function route() {
   old.replaceWith(page);
   if (currentCleanup) { try { currentCleanup(); } catch { /* ignore */ } currentCleanup = null; }
   if (!match) { location.hash = '#/'; return; }
-  const [re, mod, nav] = match;
+  const [re, mod, nav, perm] = match;
   const params = path.match(re).slice(1);
   document.querySelectorAll('[data-nav]').forEach((a) => a.classList.toggle('active', a.dataset.nav === nav));
-  const isRoot = ['dashboard', 'bookings', 'customers', 'shipments', 'scan', 'more'].includes(mod);
+  const isRoot = ['dashboard', 'bookings', 'customers', 'shipments', 'scan', 'more', 'leads', 'sourcing', 'search'].includes(mod) || (mod === 'mail' && !params[0]);
   document.querySelector('.back-btn')?.classList.toggle('hidden', isRoot);
   document.querySelector('.mobile-brand')?.classList.toggle('hidden', !isRoot);
   page.innerHTML = `<div class="boot" style="min-height:40vh"><div class="spinner"></div></div>`;
   window.scrollTo(0, 0);
   const setTitle = (s) => { $('#page-title').textContent = s; document.title = `${s} · Horse Cargo`; };
   setTitle(nav ? t(nav) : 'Horse Cargo');
+  refreshMailBadge();
+  if (!routeAllowed(perm)) {
+    page.innerHTML = `<div class="card card-b"><div class="callout danger">${icon('lock')}<div><b>${esc(t('no_access_title'))}</b><br>${esc(t('no_access_body'))}</div></div>
+      <div style="margin-top:12px"><a class="btn" href="#/">${esc(t('home'))}</a></div></div>`;
+    return;
+  }
   try {
     const m = await import(`./pages/${mod}.js`);
     const cleanup = await m.render({ el: page, params, query, setTitle, rerender: route });
@@ -246,6 +292,7 @@ async function boot() {
     if (!profile || !profile.active) return renderInactive();
     await loadReference(true);
     renderShell();
+    startMailPolling();
     await route();
   } catch (e) {
     console.error(e);
@@ -253,6 +300,14 @@ async function boot() {
       <div class="callout danger">${icon('alert')}<div>${esc(errText(e))}</div></div>
       <div class="row"><button class="btn primary" onclick="location.reload()">${esc(t('retry'))}</button><button class="btn" data-logout>${esc(t('logout'))}</button></div></div></div>`;
   }
+}
+
+// unread staff mail: a light, cheap poll (no realtime infrastructure needed)
+let mailTimer = null;
+function startMailPolling() {
+  if (mailTimer || !can('mail.use')) return;
+  mailTimer = setInterval(() => { if (document.visibilityState === 'visible') refreshMailBadge(); }, 30000);
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') refreshMailBadge(); });
 }
 
 // global handlers
