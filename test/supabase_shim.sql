@@ -1,4 +1,6 @@
 -- Local PostgreSQL test setup only. Never run this in a Supabase project.
+create role service_role nologin;
+alter role service_role bypassrls;
 create role anon nologin;
 create role authenticated nologin;
 create schema auth;

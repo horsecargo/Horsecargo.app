@@ -56,3 +56,30 @@ node test/updates_e2e.mjs
 `navigation_e2e.mjs` — six top-level entries for Admin, one-open-group keyboard navigation, the four Finance sections, deep-link selection, permission grants and revocation, role-specific dashboard/phone shortcuts, grouped More, Follow-up filtering, mobile access below the fold, and English/Kiswahili layout at 390px and 320px. Uses the same isolated fixtures; screenshots are under `work/qa/`.
 
 The older `ship_e2e`, `v3_e2e` and `v4_e2e` browser scripts already fail on the v5 code (they predate the v5 screens) and `doc_test.mjs` still asserts the approval flow v5 removed; they are unchanged.
+
+## v7 (cPanel mailbox and administrator user deletion)
+
+After the v6 database suite, run `node test/mail_v7_test.mjs` to restore the final
+v7 guards before browser tests. `test:setup` also applies v7 after v6.
+
+- `node test/mail_transport_test.mjs`: encrypted credential integrity, recipient
+  validation, TLS configuration, SMTP/IMAP send behavior, BCC privacy, send retries,
+  Sent-copy failure, UIDVALIDITY handling, server authorization, Auth cleanup
+  failures/retries and push endpoint validation. Uses mocked transports/Auth.
+- `node test/mail_poll_test.mjs`: scheduled new-mail detection, cursor baselines,
+  no duplicate notifications, transient retry, expired subscriptions, poll leases
+  and permission revocation. Uses synthetic IMAP/Web Push.
+- `node test/mail_v7_test.mjs`: real isolated PostgreSQL/RLS checks for credential
+  table denial, service-only poll helpers, administrator-only deletion, reason and
+  self-deletion checks, audit/history preservation, stale-session denial and
+  non-reactivatable tombstones. Synthetic deletion is rolled back.
+- `node test/mail_v7_e2e.mjs`: actual local app/database with mocked mailbox API:
+  desktop/mobile Gmail-style UI, search/pagination, safe text, replies, drafts,
+  attachments, new-mail toast, browser push identity isolation and deletion UI.
+  Screenshots are written under ignored `work/qa/mail-v7-*.png`.
+
+`npm run test:mail` runs all four. Start the fixture database/server first.
+The legacy internal-mail browser test explicitly opens `#/mail?internal=1`.
+No test sends customer email, connects to cPanel, modifies production users or
+proves live browser/OS push delivery. Complete `docs/CPANEL-MAIL-SETUP.md` after
+hosting configuration and deployment.

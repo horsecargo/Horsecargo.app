@@ -1,3 +1,4 @@
+import { mailApi, mt } from '../mailclient.js';
 import { t, getLang } from '../i18n.js';
 const getLangLabel = (c) => (getLang() === 'sw' ? c.label_sw : c.label_en);
 import { from, run, rpc, isAdmin, can, state, errText } from '../api.js';
@@ -24,7 +25,7 @@ export async function render({ el, setTitle, query, rerender }) {
   setTitle(t('users'));
   const admin = isAdmin();
   if (!admin && !can('staff.read')) { el.innerHTML = `<div class="callout danger">${icon('lock')}<div>${esc(errText({ message: 'NOT_ALLOWED:' }))}</div></div>`; return; }
-  let tab = admin ? (['access', 'invites', 'perms'].includes(query.get('tab')) ? query.get('tab') : 'staff') : 'staff';
+  let tab = admin ? (['access', 'invites', 'perms', 'deleted'].includes(query.get('tab')) ? query.get('tab') : 'staff') : 'staff';
   let roleFilter = ''; let nameFilter = '';
 
   const [rows, grants, invites, assignable, grantable] = await Promise.all([
@@ -46,6 +47,7 @@ export async function render({ el, setTitle, query, rerender }) {
   </div>
   <div class="chips ${admin ? '' : 'hidden'}" id="tabs" style="margin-bottom:14px">
     <button class="chip" data-tab="staff">${esc(t('staff'))} <span class="muted">${rows.filter((r) => r.active).length}</span></button>
+    <button class="chip" data-tab="deleted">${esc(mt('Deleted users','Users waliofutwa'))}</button>
     <button class="chip" data-tab="access">${esc(t('special_access'))}${live.length ? ` <span class="pill">${live.length}</span>` : ''}</button>
     <button class="chip" data-tab="perms">${esc(t('role_permissions'))}</button>
     <button class="chip" data-tab="invites">${esc(t('pending_invites'))}${invites.filter((i) => !i.accepted_at).length ? ` <span class="pill">${invites.filter((i) => !i.accepted_at).length}</span>` : ''}</button>
@@ -54,11 +56,15 @@ export async function render({ el, setTitle, query, rerender }) {
 
   const paint = () => {
     $$('#tabs .chip', el).forEach((c) => c.classList.toggle('on', c.dataset.tab === tab));
+    if (tab === 'deleted') {
+      $('#pane', el).innerHTML = `<div class="card card-b"><p class="muted">${esc(mt('Deleted profiles are retained for work and financial history.','Profiles zilizofutwa zimehifadhiwa kwa historia ya kazi na fedha.'))}</p>${rows.filter(r => r.deleted_at).map(u => `<div class="row" style="padding:12px 0;gap:12px;flex-wrap:wrap"><div class="grow"><b>${esc(u.full_name || u.email)}</b><div class="small muted">${esc(u.email)} · ${fdatetime(u.deleted_at)}</div></div>${u.auth_deleted_at ? `<span class="badge s-cancelled">${esc(mt('Deleted','Amefutwa'))}</span>` : `<button class="btn danger" data-retry-delete="${u.id}">${esc(mt('Retry Auth cleanup','Jaribu kumalizia kufuta Auth'))}</button>`}</div>`).join('') || esc(t('nothing_here'))}</div>`;
+      return;
+    }
     if (tab === 'perms') { permsPane($('#pane', el)); return; }
     $('#pane', el).innerHTML = tab === 'staff' ? staffPane(filtered()) : tab === 'access' ? accessPane(grants, live) : invitePane(invites);
     if (tab === 'staff') wireFilters();
   };
-  const filtered = () => rows.filter((u) => (!roleFilter || u.role === roleFilter)
+  const filtered = () => rows.filter((u) => !u.deleted_at && (!roleFilter || u.role === roleFilter)
     && (!nameFilter || `${u.full_name} ${u.email} ${u.phone || ''}`.toLowerCase().includes(nameFilter)));
   const presentRoles = [...new Set([...ROLES.filter((r) => r !== 'admin'), ...rows.map((r) => r.role)])];
   const wireFilters = () => {
@@ -168,6 +174,8 @@ export async function render({ el, setTitle, query, rerender }) {
   if (admin) $('#invite', el).onclick = () => inviteModal(rerender);
 
   el.addEventListener('click', async (e) => {
+    const retry = e.target.closest('[data-retry-delete]');
+    if (retry && admin) { busy(retry, async () => { try { const result = await mailApi('delete-user', { userId: retry.dataset.retryDelete, reason: 'Retry pending Auth cleanup' }); toast(result.authDeleted ? mt('Auth cleanup complete.','Auth imefutwa.') : result.error, result.authDeleted ? 'ok' : 'info'); rerender(); } catch(err) { toast(errText(err),'err'); } }); return; }
     const g = e.target.closest('#grant');
     if (g) { grantModal(rows.filter((r) => r.active && r.role !== 'admin'), grantable, rerender); return; }
 
@@ -248,8 +256,17 @@ function staffModal(u, live, after) {
         ${mine.map((g) => `<div class="small">${esc(t('p_' + g.permission.replace('.', '_')))} · ${g.expires_at ? esc(t('until')) + ' ' + fdatetime(g.expires_at) : esc(t('no_expiry'))}</div>`).join('')}
         <div class="hint">${esc(t('deactivate_revokes'))}</div></div>` : ''}
     </form>`,
-    foot: `<button class="btn" data-close>${esc(t('cancel'))}</button><button class="btn primary" id="us">${icon('check')}${esc(t('save'))}</button>`,
+    foot: `${!self ? `<button class="btn danger" id="user-delete">${icon('trash')}${esc(mt('Delete user','Futa user'))}</button>` : ''}<button class="btn" data-close>${esc(t('cancel'))}</button><button class="btn primary" id="us">${icon('check')}${esc(t('save'))}</button>`,
     onMount: (m) => {
+      const remove = m.el.querySelector('#user-delete');
+      if (remove) remove.onclick = (ev) => busy(ev.currentTarget, async () => {
+        const reason = await confirmDialog(mt(`Delete ${u.full_name || u.email}? App login and mailbox access will be removed. Work and financial history will be retained. The cPanel mailbox itself is retained.`, `Futa ${u.full_name || u.email}? Hataweza kuingia app au kutumia email kupitia app. Historia ya kazi na fedha itabaki. Mailbox ya cPanel yenyewe itabaki.`), { okText: mt('Delete user','Futa user'), danger: true, withReason: true, reasonLabel: t('reason') });
+        if (!reason) return;
+        try {
+          const result = await mailApi('delete-user', { userId: u.id, reason });
+          m.close(); toast(result.authDeleted ? mt('User deleted. History retained.','User amefutwa. Historia imehifadhiwa.') : result.error, result.authDeleted ? 'ok' : 'info', 8000); after();
+        } catch (err) { toast(errText(err), 'err'); }
+      });
       m.el.querySelector('#us').onclick = (ev) => busy(ev.currentTarget, async () => {
         const d = formData(m.el.querySelector('#uf'));
         const p = { id: u.id, full_name: d.full_name, phone: d.phone, branch_code: d.branch_code || null };

@@ -212,3 +212,7 @@ Horse Cargo OS is a vanilla HTML/CSS/JS progressive web app backed by Supabase (
 **Accounting (A1):** two legal entities (AE, TZ) with automatic intercompany, USD double-entry ledger fed automatically by receipts, invoices and voids; supplier bills and expenses linked to containers; maker–checker manual journals; P&L, balance sheet (with intercompany elimination), trial balance and profit per container. Install by running `accounting-1-roles.sql` and then `accounting-2.sql` as two separate runs.
 
 **Setup:** run `supabase/schema.sql` then `seed.sql` in the Supabase SQL editor → put the project URL and anon key in `www/config.js` → deploy `www/` to Netlify/Vercel/Hostinger → the first person to sign up becomes admin. The live Android APK uses the existing Netlify app; see [Android updates](docs/android-updates.md) for signing and distribution. Set real rates, deposit percentages and FX in the app before go-live.
+
+## cPanel company mailbox and user deletion (v7)
+
+Apply `supabase/mail-v7.sql` after both v6 migrations before deploying the web changes. See [cPanel mail setup](docs/CPANEL-MAIL-SETUP.md) for server-only secrets, per-staff mailbox connection, browser notifications, deployment order and live acceptance checks. Existing staff conversations remain available under Previous staff messages.

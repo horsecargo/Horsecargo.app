@@ -1,13 +1,13 @@
 // Horse Cargo service worker — caches the app shell so it opens instantly and offline.
 // Data always comes live from Supabase (never cached).
-const CACHE = 'hc-shell-v11';
+const CACHE = 'hc-shell-2de072fe5846d90a';
 const SHELL = [
-  './', 'index.html', 'track.html', 'verify.html', 'config.js', 'manifest.webmanifest', 'css/app.css',
+  './', 'index.html', 'track.html', 'verify.html', 'config.js', 'manifest.webmanifest', 'css/app.css', 'css/mail.css',
   'vendor/supabase.js', 'vendor/qrcode.js', 'vendor/html5-qrcode.min.js',
   'vendor/jspdf.umd.min.js', 'vendor/jspdf.plugin.autotable.min.js',
   'js/document-items.js', 'js/document-pdf.js',
   'js/app.js', 'js/api.js', 'js/ui.js', 'js/i18n.js', 'js/scanner.js', 'js/acc.js',
-  'js/mailbadge.js', 'js/register.js', 'js/staff.js', 'js/navigation.js', 'js/updates.js',
+  'js/mailclient.js', 'js/pages/internal-mail.js', 'js/mailbadge.js', 'js/register.js', 'js/staff.js', 'js/navigation.js', 'js/updates.js',
   'js/pages/leads.js', 'js/pages/lead.js', 'js/pages/sourcing.js', 'js/pages/sourcing-item.js', 'js/pages/mail.js',
   'js/pages/search.js', 'js/pages/grn-register.js', 'js/pages/labels.js', 'js/pages/invoices.js', 'js/pages/payments.js',
   'js/pages/dashboard.js', 'js/pages/shipments.js', 'js/pages/shipment.js', 'js/pages/shipment-new.js', 'js/pages/grn.js',
@@ -26,6 +26,7 @@ const SHELL = [
 self.addEventListener('install', e => e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL))));
 self.addEventListener('message', e => {
   if (e.data?.type === 'ACTIVATE_UPDATE') self.skipWaiting();
+  if (e.data?.type === 'MAIL_USER') e.waitUntil(mailIdentity('readwrite', e.data.userId));
 });
 self.addEventListener('activate', e => {
   e.waitUntil(caches.keys().then(ks => Promise.all(
@@ -42,4 +43,39 @@ self.addEventListener('fetch', (e) => {
     const cached = await cache.match(shellURL);
     return cached || fetch(e.request);
   }));
+});
+
+// Only an opaque staff ID is retained. No password, token or email is cached.
+function mailIdentity(mode, userId) {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open('hc-mail-device', 1);
+    request.onupgradeneeded = () => request.result.createObjectStore('identity');
+    request.onerror = () => reject(request.error);
+    request.onsuccess = () => {
+      const db = request.result; const tx = db.transaction('identity', mode); const store = tx.objectStore('identity');
+      const op = mode === 'readwrite' ? store.put(userId || null, 'user') : store.get('user');
+      let result; op.onsuccess = () => { result = op.result; };
+      tx.oncomplete = () => { db.close(); resolve(result); };
+      tx.onerror = () => { db.close(); reject(tx.error); };
+    };
+  });
+}
+self.addEventListener('push', e => e.waitUntil((async () => {
+  let data; try { data = e.data.json(); } catch { return; }
+  const current = await mailIdentity('readonly');
+  if (!current || current !== data.userId) return;
+  await self.registration.showNotification('Horse Cargo · New email', {
+    body: 'You have new mail. Open your inbox to read it.', icon: 'icons/icon-192.png',
+    badge: 'icons/favicon-96.png', tag: data.tag || 'horse-mail', data: { url: '#/mail' },
+  });
+})()));
+self.addEventListener('notificationclick', e => {
+  e.notification.close();
+  e.waitUntil((async () => {
+    const url = new URL('./#/mail', self.registration.scope).href;
+    const windows = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+    const existing = windows.find(w => w.url.startsWith(self.registration.scope));
+    if (existing) { await existing.navigate(url); await existing.focus(); }
+    else await self.clients.openWindow(url);
+  })());
 });
