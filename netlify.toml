@@ -6,3 +6,11 @@
   for = "/*"
   [headers.values]
     Cache-Control = "no-cache"
+
+[build.environment]
+  NODE_VERSION = "22"
+
+[functions]
+  directory = "netlify/functions"
+  node_bundler = "esbuild"
+  external_node_modules = ["imapflow", "mailparser", "nodemailer", "web-push"]

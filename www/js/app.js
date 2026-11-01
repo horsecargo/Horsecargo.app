@@ -1,6 +1,7 @@
 import { t, getLang, setLang } from './i18n.js';
 import { sb, configured, state, loadSession, loadReference, errText, can, canAny } from './api.js';
-import { refreshMailBadge, mailBadge } from './mailbadge.js';
+import { refreshMailBadge, mailBadge, clearMailBadge } from './mailbadge.js';
+import { identifyMailUser, stopMailNotifications, resetMailbox } from './mailclient.js';
 import { icon, esc, toast, $ } from './ui.js';
 import { navGroups, groupItems, navTools, groupForNav, primaryGroup, groupedMenu, openMenuGroup } from './navigation.js';
 import { startUpdates } from './updates.js';
@@ -271,6 +272,7 @@ async function boot() {
     if (!profile || !profile.active) return renderInactive();
     await loadReference(true);
     renderShell();
+    identifyMailUser(profile.id);
     startMailPolling();
     await route();
   } catch (e) {
@@ -298,11 +300,11 @@ document.addEventListener('click', async (e) => {
   }
   const l = e.target.closest('[data-lang]');
   if (l) { setLang(l.dataset.lang); if (state.profile?.active) { renderShell(); route(); } else boot(); return; }
-  if (e.target.closest('[data-logout]')) { await sb?.auth.signOut(); state.profile = null; location.hash = '#/'; boot(); return; }
+  if (e.target.closest('[data-logout]')) { await stopMailNotifications(); await sb?.auth.signOut(); state.profile = null; clearMailBadge(); resetMailbox(); location.hash = '#/'; boot(); return; }
   if (e.target.closest('[data-back]')) { if (history.length > 1) history.back(); else location.hash = '#/'; }
 });
 window.addEventListener('hashchange', route);
-if (sb) sb.auth.onAuthStateChange((ev) => { if (ev === 'SIGNED_OUT' && state.profile) { state.profile = null; renderLogin(); } });
+if (sb) sb.auth.onAuthStateChange((ev) => { if (ev === 'SIGNED_OUT' && state.profile) { identifyMailUser(null); state.profile = null; clearMailBadge(); resetMailbox(); renderLogin(); } });
 
 startUpdates();
 window.addEventListener('unhandledrejection', (e) => { console.error(e.reason); toast(errText(e.reason), 'err'); });

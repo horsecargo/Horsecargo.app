@@ -19,6 +19,12 @@ http.createServer(async(req,res)=>{
   try {
     let raw='';for await(const chunk of req)raw+=chunk;
     const body=raw?JSON.parse(raw):{};
+    // Local fixture only: SMTP/IMAP is mocked by mail_v7_e2e.mjs; legacy suites
+    // receive an unconnected mailbox without reaching external providers.
+    if(url.pathname==='/.netlify/functions/mail') {
+      if(body.action==='status')return json(res,200,{connected:false,configured:true,email:'',vapidPublicKey:''});
+      return json(res,501,{error:'Mail transport is not implemented by the local database adapter.'});
+    }
     if(url.pathname.startsWith('/auth/v1')) {
       if(url.pathname.endsWith('/logout'))return json(res,200,{});
       const uid=req.headers.authorization?.replace(/^Bearer /,'').replace(/^test:/,'');

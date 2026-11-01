@@ -132,7 +132,7 @@ try {
   let thread;
   {
     const a = await session('ops');
-    await go(a.page, '/mail', '#compose'); await a.page.locator('#compose').click();
+    await go(a.page, '/mail?internal=1', '#compose'); await a.page.locator('#compose').click();
     await a.page.locator('#mc-to-in').fill('Catherine'); await a.page.locator('.rcpt-opt').first().click();
     await a.page.locator('#mc-subject').fill('Shipment check ' + fx.shipRef);
     await a.page.locator('#mc-body').fill('Please confirm whether this cargo has been packed.');
@@ -144,7 +144,7 @@ try {
     const b = await session('care', { width: 390, height: 844 });
     await b.page.waitForFunction(() => Number(document.querySelector('[data-mail-badge]:not(.hidden)')?.textContent || 0) >= 1);
     ok(true, 'recipient sees the unread badge');
-    await go(b.page, '/mail', '.mail-row'); ok(await b.page.locator('.mail-row.unread').count() >= 1, 'inbox shows it unread');
+    await go(b.page, '/mail?internal=1', '.mail-row'); ok(await b.page.locator('.mail-row.unread').count() >= 1, 'inbox shows it unread');
     await noSideScroll(b.page, 'mail inbox');
     const badgeN = () => b.page.evaluate(() => Number(document.querySelector('[data-mail-badge]')?.textContent || 0));
     const before = await badgeN();

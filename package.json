@@ -2,7 +2,7 @@
   "name": "horse-cargo-app",
   "version": "1.0.0",
   "private": true,
-  "description": "Horse Cargo operating system — web app (www/) + Android APK via Capacitor",
+  "description": "Horse Cargo operating system \u2014 web app (www/) + Android APK via Capacitor",
   "scripts": {
     "serve": "npx --yes http-server www -p 8080 -c-1",
     "test:setup": "node test/setup.mjs",
@@ -13,11 +13,16 @@
     "cap:sync": "npx cap sync android",
     "apk:debug": "node scripts/build-apk.mjs debug",
     "apk:release": "node scripts/build-apk.mjs release",
-    "apk:bundled": "npx cap sync android && cd android && ./gradlew assembleDebug"
+    "apk:bundled": "npx cap sync android && cd android && ./gradlew assembleDebug",
+    "test:mail": "node test/mail_transport_test.mjs && node test/mail_poll_test.mjs && node test/mail_v7_test.mjs && node test/mail_v7_e2e.mjs"
   },
   "dependencies": {
     "@capacitor/android": "^7.0.0",
-    "@capacitor/core": "^7.0.0"
+    "@capacitor/core": "^7.0.0",
+    "imapflow": "^2.10.0",
+    "mailparser": "^3.14.1",
+    "nodemailer": "^10.3.1",
+    "web-push": "^3.6.7"
   },
   "devDependencies": {
     "@capacitor/cli": "^7.0.0",

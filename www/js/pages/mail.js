@@ -1,232 +1,656 @@
-// Staff Mail — internal messages between Horse Cargo staff accounts.
-import { t } from '../i18n.js';
-import { rpc, state, errText } from '../api.js';
-import { icon, esc, fdatetime, ago, modal, toast, busy, debounce, empty, $ } from '../ui.js';
-import { refreshMailBadge } from '../mailbadge.js';
+import { t } from "../i18n.js";
+import { rpc, state, errText } from "../api.js";
+import {
+  icon,
+  esc,
+  fdatetime,
+  ago,
+  modal,
+  toast,
+  busy,
+  debounce,
+  empty,
+  $,
+  confirmDialog,
+} from "../ui.js";
+import {
+  mailApi,
+  mt,
+  mailboxStatus,
+  resetMailbox,
+  enableMailNotifications,
+} from "../mailclient.js";
+import { refreshMailBadge } from "../mailbadge.js";
 
-const FOLDERS = [['inbox', 'inbox', 'inbox'], ['sent', 'sent_box', 'send'], ['archived', 'archived', 'archive'], ['trash', 'trash', 'trash']];
-let directory = null;
-const loadDirectory = async () => { if (!directory) directory = await rpc('mail_directory', { p_q: null }).catch(() => []); return directory; };
-const initial = (n) => esc(String(n || '?').trim().slice(0, 1).toUpperCase());
-const roleOf = (r) => (r ? t('r_' + r) : '');
+const folders = () => [
+  ["inbox", t("inbox"), "inbox"],
+  ["starred", mt("Starred", "Zenye nyota"), "star"],
+  ["sent", t("sent_box"), "send"],
+  ["drafts", mt("Drafts", "Rasimu"), "file"],
+  ["archive", t("archived"), "archive"],
+  ["spam", mt("Spam", "Barua taka"), "alert"],
+  ["trash", t("trash"), "trash"],
+];
+const address = (list) =>
+  (list || [])
+    .map((x) => x.address)
+    .filter(Boolean)
+    .join(", ");
+const sender = (list) =>
+  (list || []).map((x) => x.name || x.address).join(", ");
+const initial = (name) => esc((name || "?").trim().slice(0, 1).toUpperCase());
+const button = (id, ic, text) =>
+  `<button class="icon-btn" id="${id}" title="${esc(text)}" aria-label="${esc(text)}">${icon(ic)}</button>`;
 
-// ───────── recipient picker (search active staff, chips) ─────────
-function picker(host, dir, selected = [], { label, id }) {
-  let sel = [...new Set(selected)].filter((x) => dir.some((d) => d.id === x));
-  host.innerHTML = `<label for="${id}">${esc(label)}</label>
-    <div class="rcpt" data-rcpt><span class="rcpt-chips"></span>
-      <input class="rcpt-in" id="${id}" autocomplete="off" placeholder="${esc(t('search_staff'))}" role="combobox" aria-expanded="false"></div>
-    <div class="rcpt-list hidden" role="listbox"></div>`;
-  const chips = host.querySelector('.rcpt-chips'); const input = host.querySelector('input'); const list = host.querySelector('.rcpt-list');
-  const paint = () => {
-    chips.innerHTML = sel.map((uid) => { const d = dir.find((x) => x.id === uid); return `<span class="rchip" data-uid="${uid}">${esc(d?.name || '?')}<button type="button" aria-label="remove" data-rm="${uid}">×</button></span>`; }).join('');
-  };
-  const show = () => {
-    const q = input.value.trim().toLowerCase();
-    const hits = dir.filter((d) => !sel.includes(d.id) && (!q || d.name.toLowerCase().includes(q) || (d.email || '').toLowerCase().includes(q) || roleOf(d.role).toLowerCase().includes(q))).slice(0, 8);
-    list.innerHTML = hits.map((d) => `<button type="button" class="rcpt-opt" role="option" data-add="${d.id}"><b>${esc(d.name)}</b><span class="muted small">${esc(roleOf(d.role))}${d.branch ? ' · ' + esc(d.branch) : ''}</span></button>`).join('')
-      || `<div class="muted small" style="padding:8px">${esc(t('nothing_here'))}</div>`;
-    list.classList.remove('hidden'); input.setAttribute('aria-expanded', 'true');
-  };
-  const hide = () => { list.classList.add('hidden'); input.setAttribute('aria-expanded', 'false'); };
-  input.addEventListener('focus', show);
-  input.addEventListener('input', show);
-  input.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') { e.preventDefault(); const first = list.querySelector('[data-add]'); if (first) first.click(); }
-    if (e.key === 'Backspace' && !input.value && sel.length) { sel.pop(); paint(); }
-    if (e.key === 'Escape') hide();
-  });
-  host.addEventListener('mousedown', (e) => { if (e.target.closest('[data-add]')) e.preventDefault(); });
-  host.addEventListener('click', (e) => {
-    const a = e.target.closest('[data-add]'); if (a) { sel.push(a.dataset.add); input.value = ''; paint(); show(); input.focus(); return; }
-    const r = e.target.closest('[data-rm]'); if (r) { sel = sel.filter((x) => x !== r.dataset.rm); paint(); }
-  });
-  input.addEventListener('blur', () => setTimeout(hide, 150));
-  paint();
-  return { get: () => [...sel] };
+export async function render(ctx) {
+  if (ctx.query.get("internal") === "1" || ctx.params[0])
+    return (await import("./internal-mail.js")).render(ctx);
+  return mailbox(ctx);
 }
-
-async function compose({ to = [], cc = [], subject = '', body = '' } = {}) {
-  const dir = await loadDirectory();
-  const token = crypto.randomUUID();
+async function settings(after) {
+  let s;
+  try {
+    s = await mailboxStatus(true);
+  } catch (e) {
+    toast(e.message, "err");
+    return;
+  }
   modal({
-    title: t('compose'), wide: true,
-    body: `<form class="form mail-form" id="mc" novalidate>
-      <div class="field full" id="mc-to"></div>
-      <div class="field full" id="mc-cc"></div>
-      <div class="field full"><label class="req" for="mc-subject">${esc(t('subject'))}</label><input class="input" id="mc-subject" name="subject" maxlength="200" value="${esc(subject)}"></div>
-      <div class="field full"><label class="req" for="mc-body">${esc(t('message'))}</label><textarea class="input" id="mc-body" name="body" rows="9">${esc(body)}</textarea></div>
+    title: mt("Mailbox settings", "Mipangilio ya email"),
+    body: `
+    <p class="muted">${esc(mt("Connect the cPanel email account already created for you. Use its mailbox password, which may differ from your app password.", "Unganisha akaunti yako ya email iliyotengenezwa kwenye cPanel. Tumia password ya mailbox; inaweza kutofautiana na password ya app."))}</p>
+    ${!s.configured ? `<div class="callout warn">${esc(mt("Server setup is required before a mailbox can connect.", "Mipangilio ya server inahitajika kabla ya kuunganisha mailbox."))}</div>` : ""}
+    <form id="mail-connect" class="form">
+      <div class="field full"><label for="mail-address">${esc(t("email"))}</label><input class="input" id="mail-address" type="email" required autocomplete="username" value="${esc(s.email || state.profile.email)}" ${s.connected ? "readonly" : ""}></div>
+      <div class="field full"><label for="mail-password">${esc(mt("Mailbox password", "Password ya email"))}</label><input class="input" id="mail-password" type="password" required autocomplete="current-password" maxlength="1024"></div>
+      <p class="hint full">${esc(mt("Passwords are encrypted on the server and are never stored in this browser.", "Passwords zinahifadhiwa kwa encryption kwenye server; hazihifadhiwi kwenye browser hii."))}</p>
     </form>`,
-    foot: `<button class="btn" data-close>${esc(t('cancel'))}</button><button class="btn primary" id="mc-send">${icon('send')}${esc(t('send'))}</button>`,
-    onMount: (m) => {
-      const pto = picker(m.el.querySelector('#mc-to'), dir, to, { label: t('mail_to'), id: 'mc-to-in' });
-      const pcc = picker(m.el.querySelector('#mc-cc'), dir, cc, { label: t('mail_cc'), id: 'mc-cc-in' });
-      if (body) { const ta = m.el.querySelector('#mc-body'); ta.setSelectionRange(0, 0); }
-      m.el.querySelector('#mc-send').onclick = (ev) => busy(ev.currentTarget, async () => {
-        const p = { to: pto.get(), cc: pcc.get(), subject: m.el.querySelector('#mc-subject').value.trim(), body: m.el.querySelector('#mc-body').value, client_token: token };
-        if (!p.to.length && !p.cc.length) { toast(t('choose_recipient'), 'err'); return; }
-        if (!p.subject || !p.body.trim()) { toast(t('required_fields'), 'err'); return; }
-        try { const r = await rpc('mail_send', { p }); m.close(); toast(t('mail_sent')); location.hash = `#/mail/${r.thread_id}`; }
-        catch (err) { toast(errText(err), 'err'); }
-      });
+    foot: `${s.connected ? `<button class="btn danger" id="mail-disconnect">${esc(mt("Disconnect", "Ondoa muunganiko"))}</button>` : ""}<button class="btn primary" id="mail-connect-save" ${s.configured ? "" : "disabled"}>${esc(s.connected ? mt("Update password", "Badili password") : mt("Connect mailbox", "Unganisha email"))}</button>`,
+    onMount(m) {
+      $("#mail-connect", m.el).onsubmit = (e) => {
+        e.preventDefault();
+        $("#mail-connect-save", m.el).click();
+      };
+      $("#mail-connect-save", m.el).onclick = (ev) =>
+        busy(ev.currentTarget, async () => {
+          const f = $("#mail-connect", m.el);
+          if (!f.reportValidity()) return;
+          try {
+            await mailApi("connect", {
+              email: $("#mail-address", m.el).value.trim(),
+              password: $("#mail-password", m.el).value,
+            });
+            $("#mail-password", m.el).value = "";
+            resetMailbox();
+            m.close();
+            after();
+          } catch (e) {
+            toast(e.message, "err");
+          }
+        });
+      const disconnect = $("#mail-disconnect", m.el);
+      if (disconnect)
+        disconnect.onclick = (ev) =>
+          busy(ev.currentTarget, async () => {
+            if (
+              !(await confirmDialog(
+                mt(
+                  "Disconnect this mailbox from the app? Email on cPanel will be retained.",
+                  "Ondoa muunganiko wa email kwenye app? Email zilizoko cPanel zitabaki.",
+                ),
+              ))
+            )
+              return;
+            try {
+              await mailApi("disconnect");
+              resetMailbox();
+              m.close();
+              after();
+            } catch (e) {
+              toast(e.message, "err");
+            }
+          });
     },
   });
 }
-
-export async function render(ctx) {
-  if (ctx.params[0]) return thread(ctx);
-  return inbox(ctx);
-}
-
-// ───────── folder list ─────────
-async function inbox({ el, setTitle, query }) {
-  setTitle(t('staff_mail'));
-  let folder = FOLDERS.some((f) => f[0] === query.get('f')) ? query.get('f') : 'inbox';
-  let q = '';
-  el.innerHTML = `
-    <div class="page-head"><div class="grow"><h1>${esc(t('staff_mail'))}</h1></div>
-      <button class="btn primary" id="compose">${icon('plus')}${esc(t('compose'))}</button></div>
-    <div class="mail-folders chips" role="tablist">${FOLDERS.map(([k, label, ic]) => `<button class="chip" role="tab" data-f="${k}">${icon(ic)} ${esc(t(label))}<span class="cnt" data-cnt="${k}"></span></button>`).join('')}</div>
-    <div class="card" style="margin-top:12px">
-      <div class="card-h"><div class="search" style="flex:1;max-width:460px">${icon('search')}<input class="input" id="mq" type="search" placeholder="${esc(t('mail_search_ph'))}" aria-label="${esc(t('mail_search_ph'))}"></div>
-        <button class="icon-btn" id="mrefresh" title="${esc(t('retry'))}" aria-label="${esc(t('retry'))}">${icon('refresh')}</button></div>
-      <div id="mlist"><div class="card-b"><div class="spinner"></div></div></div>
-    </div>`;
-  const paintTabs = () => el.querySelectorAll('[data-f]').forEach((b) => { b.classList.toggle('on', b.dataset.f === folder); b.setAttribute('aria-selected', b.dataset.f === folder); });
-  const load = async () => {
-    const box = $('#mlist', el);
-    try {
-      const { rows, total } = await rpc('mail_list', { p_folder: folder, p_q: q || null, p_limit: 100, p_offset: 0 });
-      if (folder === 'inbox') { const n = rows.reduce((s, r) => s + Number(r.unread || 0), 0); const c = el.querySelector('[data-cnt="inbox"]'); if (c) c.textContent = n ? ` ${n}` : ''; }
-      box.innerHTML = rows.length ? `<div class="mail-list">${rows.map((r) => {
-        const who = folder === 'sent' ? `${esc(t('mail_to'))}: ${esc((r.participants || []).join(', ') || t('you'))}` : esc(r.last_sender_id === state.profile.id ? t('you') : r.last_sender || '');
-        return `<a class="mail-row ${Number(r.unread) ? 'unread' : ''}" href="#/mail/${r.id}">
-          <span class="av">${initial(r.last_sender)}</span>
-          <span class="mr-main"><span class="mr-top"><span class="mr-who">${who}${Number(r.message_count) > 1 ? ` <span class="muted">(${r.message_count})</span>` : ''}</span>
-            <span class="mr-time" title="${esc(fdatetime(r.last_at))}">${esc(ago(r.last_at))}</span></span>
-            <span class="mr-subj">${Number(r.unread) ? `<span class="dot" aria-label="${esc(t('unread'))}"></span>` : ''}${esc(r.subject)}</span>
-            <span class="mr-snip">${esc(r.snippet || '')}</span></span></a>`;
-      }).join('')}</div>${total > rows.length ? `<div class="card-b muted small">${rows.length} / ${total}</div>` : ''}` : empty(t('no_mail'), 'mail');
-    } catch (err) { box.innerHTML = `<div class="card-b"><div class="callout danger">${icon('alert')}<div>${esc(errText(err))}</div></div></div>`; }
-  };
-  el.addEventListener('click', (e) => {
-    const f = e.target.closest('[data-f]');
-    if (f) { folder = f.dataset.f; history.replaceState(null, '', `#/mail?f=${folder}`); paintTabs(); load(); }
-  });
-  $('#compose', el).onclick = () => compose();
-  $('#mrefresh', el).onclick = () => { load(); refreshMailBadge(); };
-  $('#mq', el).addEventListener('input', debounce((e) => { q = e.target.value.trim(); load(); }, 300));
-  paintTabs();
-  await load();
-  refreshMailBadge();
-  if (query.get('compose') === '1') compose();
-  const timer = setInterval(() => { if (document.visibilityState === 'visible' && !document.querySelector('.modal-bg')) load(); }, 30000);
-  return () => clearInterval(timer);
-}
-
-// ───────── conversation ─────────
-async function thread({ el, params, setTitle, rerender }) {
-  const id = params[0];
-  let th;
-  try { th = await rpc('mail_thread', { p_thread: id }); }
-  catch (err) {
-    el.innerHTML = `<div class="card card-b"><div class="callout danger">${icon('lock')}<div>${esc(errText(err))}</div></div>
-      <div style="margin-top:12px"><a class="btn" href="#/mail">${esc(t('back'))}</a></div></div>`;
-    return;
+async function compose(after, seed = {}, draftId = null) {
+  let directory = [];
+  try {
+    directory = await rpc("mail_directory", { p_q: null });
+  } catch {
+    /* explicit addresses still work */
   }
-  refreshMailBadge();
-  setTitle(th.subject);
-  const me = state.profile.id;
-  const msgs = th.messages || [];
-  const last = msgs[msgs.length - 1];
-  const names = (list) => list.map((r) => (r.id === me ? t('you') : r.name)).join(', ');
-
-  el.innerHTML = `
-  <div class="page-head mail-head">
-    <div class="grow"><a class="small" href="#/mail">← ${esc(t('inbox'))}</a><h1 style="margin-top:4px">${esc(th.subject)}</h1>
-      <p>${msgs.length} ${esc(t('messages_n'))}</p></div>
-    <div class="row wrap-actions">
-      <button class="btn sm" data-st="${th.archived ? 'unarchive' : 'archive'}">${icon(th.archived ? 'inbox' : 'archive')}${esc(t(th.archived ? 'unarchive' : 'archive'))}</button>
-      <button class="btn sm" data-st="${th.trashed ? 'restore' : 'trash'}">${icon(th.trashed ? 'refresh' : 'trash')}${esc(t(th.trashed ? 'restore' : 'move_to_trash'))}</button>
-      <button class="btn sm" data-st="unread">${icon('mail')}${esc(t('mark_unread'))}</button>
-    </div>
-  </div>
-  <div class="mail-thread">${msgs.map((m) => {
-    const to = (m.recipients || []).filter((r) => r.kind === 'to'); const cc = (m.recipients || []).filter((r) => r.kind === 'cc');
-    return `<article class="mail-msg ${m.mine ? 'mine' : ''}" id="m-${m.id}">
-      <header><span class="av">${initial(m.sender)}</span>
-        <div class="grow"><b>${esc(m.mine ? t('you') : m.sender)}</b> <span class="muted small">${esc(roleOf(m.sender_role))}</span>
-          <div class="muted small">${esc(t('mail_to'))}: ${esc(names(to))}${cc.length ? ` · ${esc(t('mail_cc'))}: ${esc(names(cc))}` : ''}</div></div>
-        <span class="muted small nowrap" title="${esc(fdatetime(m.created_at))}">${esc(fdatetime(m.created_at))}</span></header>
-      <div class="mail-body">${esc(m.body)}</div>
-      ${m.mine ? `<footer class="receipts">${(m.recipients || []).map((r) => r.read_at
-          ? `<span class="rr ok" title="${esc(fdatetime(r.read_at))}">${icon('check')} ${esc(r.name)} · ${esc(t('read_at'))} ${esc(ago(r.read_at))}</span>`
-          : `<span class="rr">${icon('clock')} ${esc(r.name)} · ${esc(t('not_read_yet'))}</span>`).join('')}</footer>` : ''}
-      <div class="msg-acts"><button class="btn sm ghost" data-r="reply" data-m="${m.id}">${icon('reply')}${esc(t('reply'))}</button>
-        ${(m.recipients || []).length > 1 || !m.mine ? `<button class="btn sm ghost" data-r="all" data-m="${m.id}">${icon('replyAll')}${esc(t('reply_all'))}</button>` : ''}
-        <button class="btn sm ghost" data-r="fwd" data-m="${m.id}">${icon('forward')}${esc(t('forward'))}</button></div>
-    </article>`;
-  }).join('')}</div>
-  <div class="card mail-reply" id="reply-box">
-    <div class="card-b row" style="gap:8px;flex-wrap:wrap">
-      <button class="btn primary" data-r="reply" data-m="${last?.id || ''}">${icon('reply')}${esc(t('reply'))}</button>
-      <button class="btn" data-r="all" data-m="${last?.id || ''}">${icon('replyAll')}${esc(t('reply_all'))}</button>
-      <button class="btn" data-r="fwd" data-m="${last?.id || ''}">${icon('forward')}${esc(t('forward'))}</button>
-    </div>
-  </div>`;
-  // bring the newest message into view on long threads
-  if (msgs.length > 2) setTimeout(() => document.getElementById(`m-${last.id}`)?.scrollIntoView({ block: 'start' }), 30);
-
-  const replyTargets = (m, all) => {
-    const to = (m.recipients || []).filter((r) => r.kind === 'to').map((r) => r.id);
-    const cc = (m.recipients || []).filter((r) => r.kind === 'cc').map((r) => r.id);
-    if (!all) return { to: m.mine ? to : [m.sender_id], cc: [] };
-    const T = m.mine ? to : [m.sender_id, ...to];
-    return { to: [...new Set(T)].filter((x) => x !== me), cc: cc.filter((x) => x !== me && !T.includes(x)) };
+  const requestId = crypto.randomUUID();
+  let dirty = false;
+  let sending = false;
+  let currentDraft = draftId;
+  const m = modal({
+    title: mt("New message", "Email mpya"),
+    wide: true,
+    body: `
+    <form class="form gm-compose" id="mail-compose">
+      <datalist id="mail-directory">${directory.map((p) => `<option value="${esc(p.email)}">${esc(p.name)}</option>`).join("")}</datalist>
+      ${[
+        ["to", t("mail_to")],
+        ["cc", "CC"],
+        ["bcc", "BCC"],
+      ]
+        .map(
+          ([key, label]) =>
+            `<div class="field full gm-address"><label for="email-${key}">${esc(label)}</label><input class="input" name="${key}" id="email-${key}" list="mail-directory" value="${esc(seed[key] || "")}" ${key === "to" ? "required" : ""} placeholder="name@company.com"></div>`,
+        )
+        .join("")}
+      <div class="field full"><label for="email-subject">${esc(t("subject"))}</label><input class="input" name="subject" id="email-subject" maxlength="200" required value="${esc(seed.subject || "")}"></div>
+      <div class="field full"><label class="sr-only" for="email-text">${esc(t("message"))}</label><textarea class="input" name="text" id="email-text" rows="12" maxlength="100000" required>${esc(seed.text || "")}</textarea></div>
+      <div class="field full"><label for="email-files">${esc(mt("Attachments · maximum 3 MB total", "Viambatisho · jumla hadi MB 3"))}</label><input id="email-files" type="file" multiple><div id="email-file-names" class="muted small"></div></div>
+      <p class="hint full">${esc(mt("Separate multiple email addresses with commas.", "Tenganisha email nyingi kwa koma."))}</p>
+    </form>`,
+    foot: `<button class="btn" id="email-draft">${esc(mt("Save draft", "Hifadhi rasimu"))}</button><button class="btn primary" id="email-send">${icon("send")}${esc(t("send"))}</button>`,
+  });
+  const f = $("#mail-compose", m.el);
+  f.onsubmit = (e) => e.preventDefault();
+  f.addEventListener("input", () => {
+    dirty = true;
+  });
+  const data = () => ({
+    to: f.elements.to.value,
+    cc: f.elements.cc.value,
+    bcc: f.elements.bcc.value,
+    subject: f.elements.subject.value,
+    text: f.elements.text.value,
+    ...(seed.inReplyTo ? { inReplyTo: seed.inReplyTo } : {}),
+  });
+  const beforeUnload = (e) => {
+    if (dirty) {
+      e.preventDefault();
+      e.returnValue = "";
+    }
   };
-
-  const openReply = async (m, all) => {
-    const dir = await loadDirectory();
-    const { to, cc } = replyTargets(m, all);
-    const token = crypto.randomUUID();
-    const box = $('#reply-box', el);
-    box.innerHTML = `<div class="card-h"><h2>${esc(all ? t('reply_all') : t('reply'))}</h2><button class="icon-btn" id="rx" aria-label="${esc(t('cancel'))}">${icon('x')}</button></div>
-      <div class="card-b"><form class="form mail-form" novalidate>
-        <div class="field full" id="r-to"></div><div class="field full" id="r-cc"></div>
-        <div class="field full"><label class="req" for="r-body">${esc(t('message'))}</label><textarea class="input" id="r-body" rows="6"></textarea></div>
-      </form><div class="row" style="justify-content:flex-end;margin-top:10px"><button class="btn primary" id="r-send">${icon('send')}${esc(t('send'))}</button></div></div>`;
-    const pto = picker($('#r-to', box), dir, to, { label: t('mail_to'), id: 'r-to-in' });
-    const pcc = picker($('#r-cc', box), dir, cc, { label: t('mail_cc'), id: 'r-cc-in' });
-    $('#r-body', box).focus();
-    box.scrollIntoView({ block: 'nearest' });
-    $('#rx', box).onclick = () => rerender();
-    $('#r-send', box).onclick = (ev) => busy(ev.currentTarget, async () => {
-      const body = $('#r-body', box).value;
-      const p = { thread_id: id, to: pto.get(), cc: pcc.get(), body, client_token: token };
-      if (!p.to.length && !p.cc.length) { toast(t('choose_recipient'), 'err'); return; }
-      if (!body.trim()) { toast(t('required_fields'), 'err'); return; }
-      try { await rpc('mail_send', { p }); toast(t('mail_sent')); rerender(); } catch (err) { toast(errText(err), 'err'); }
+  window.addEventListener("beforeunload", beforeUnload);
+  const observer = new MutationObserver(() => {
+    if (!document.body.contains(m.el)) {
+      window.removeEventListener("beforeunload", beforeUnload);
+      observer.disconnect();
+    }
+  });
+  observer.observe(document.getElementById("modal-root"), { childList: true });
+  const guard = (e) => {
+    const closing =
+      e.type === "keydown"
+        ? e.key === "Escape"
+        : e.target === m.el.parentElement || e.target.closest("[data-close]");
+    if (closing && (dirty || sending)) {
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      if (
+        !sending &&
+        window.confirm(
+          mt(
+            "Discard unsaved changes? Use Save draft to keep this message.",
+            "Futa mabadiliko ambayo hayajahifadhiwa? Tumia Hifadhi rasimu ili kuyabakiza.",
+          ),
+        )
+      ) {
+        dirty = false;
+        m.close();
+      }
+    }
+  };
+  m.el.parentElement.addEventListener("click", guard, true);
+  m.el.parentElement.addEventListener("keydown", guard, true);
+  $("#email-files", m.el).onchange = () => {
+    $("#email-file-names", m.el).textContent = [
+      ...$("#email-files", m.el).files,
+    ]
+      .map((f) => f.name)
+      .join(", ");
+    dirty = true;
+  };
+  $("#email-draft", m.el).onclick = (ev) =>
+    busy(ev.currentTarget, async () => {
+      try {
+        const d = await mailApi("save-draft", {
+          id: currentDraft,
+          payload: data(),
+        });
+        currentDraft = d.id;
+        dirty = false;
+        toast(
+          mt(
+            "Draft saved. Attachments must be selected again when sending.",
+            "Rasimu imehifadhiwa. Chagua viambatisho tena wakati wa kutuma.",
+          ),
+        );
+        m.close();
+        after();
+      } catch (e) {
+        toast(e.message, "err");
+      }
+    });
+  $("#email-send", m.el).onclick = (ev) =>
+    busy(ev.currentTarget, async () => {
+      if (!f.reportValidity()) return;
+      const files = [...$("#email-files", m.el).files];
+      if (
+        files.length > 10 ||
+        files.reduce((n, f) => n + f.size, 0) > 3 * 1024 * 1024
+      ) {
+        toast(
+          mt(
+            "Attachments must total 3 MB or less.",
+            "Jumla ya viambatisho isizidi MB 3.",
+          ),
+          "err",
+        );
+        return;
+      }
+      sending = true;
+      $("#email-draft", m.el).disabled = true;
+      try {
+        const attachments = await Promise.all(
+          files.map(
+            (file) =>
+              new Promise((resolve, reject) => {
+                const r = new FileReader();
+                r.onerror = reject;
+                r.onload = () =>
+                  resolve({
+                    filename: file.name,
+                    content: r.result.split(",")[1],
+                  });
+                r.readAsDataURL(file);
+              }),
+          ),
+        );
+        const r = await mailApi("send", { ...data(), attachments, requestId });
+        if (r.status !== "sent") {
+          dirty = false;
+          $("#email-send", m.el).disabled = true;
+          $("#email-send", m.el).dataset.uncertain = "1";
+          toast(
+            mt(
+              "Delivery is unconfirmed. Check Sent or ask an administrator before sending again.",
+              "Utumaji haujathibitishwa. Angalia Sent au wasiliana na admin kabla ya kutuma tena.",
+            ),
+            "err",
+            12000,
+          );
+          return;
+        }
+        dirty = false;
+        if (currentDraft)
+          await mailApi("delete-draft", { id: currentDraft }).catch(() => {});
+        m.close();
+        toast(
+          r.rejected?.length
+            ? mt(
+                "Some recipients were rejected. Check the addresses.",
+                "Baadhi ya wapokeaji hawakukubaliwa. Kagua email zao.",
+              )
+            : !r.sentCopy
+              ? mt(
+                  "Email sent, but the Sent copy could not be saved. Do not resend.",
+                  "Email imetumwa, lakini nakala ya Sent haikuhifadhiwa. Usitume tena.",
+                )
+              : t("mail_sent"),
+          r.rejected?.length || !r.sentCopy ? "info" : "ok",
+          8000,
+        );
+        after();
+      } catch (e) {
+        toast(
+          `${e.message} ${mt("If the connection timed out, check Sent before retrying.", "Ikiwa muda umeisha, angalia Sent kabla ya kujaribu tena.")}`,
+          "err",
+        );
+      } finally {
+        sending = false;
+        $("#email-draft", m.el)?.removeAttribute("disabled");
+        setTimeout(() => {
+          const b = $("#email-send", m.el);
+          if (b?.dataset.uncertain) b.disabled = true;
+        }, 0);
+      }
+    });
+}
+async function mailbox({ el, setTitle, query }) {
+  setTitle(t("staff_mail"));
+  let folder = folders().some((f) => f[0] === query.get("f"))
+    ? query.get("f")
+    : "inbox";
+  let q = "";
+  let offset = 0;
+  let rows = [];
+  let total = 0;
+  let validity = "";
+  let selected = new Set();
+  let view = null;
+  let disposed = false;
+  let generation = 0;
+  el.innerHTML = `<div class="gm-shell"><aside class="gm-sidebar">
+    <div class="gm-brand">${icon("mail")}<b>Horse Mail</b></div>
+    <button class="gm-compose-btn" id="compose">${icon("plus")}${esc(t("compose"))}</button>
+    <nav aria-label="${esc(mt("Mail folders", "Folda za email"))}">${folders()
+      .map(
+        ([id, label, ic]) =>
+          `<button class="gm-folder" data-folder="${id}">${icon(ic)}<span>${esc(label)}</span>${id === "inbox" ? "<b data-external-unread></b>" : ""}</button>`,
+      )
+      .join("")}</nav>
+    <div class="gm-side-bottom"><button class="gm-folder" id="mail-settings">${icon("gear")}${esc(mt("Mailbox settings", "Mipangilio ya email"))}</button><a class="gm-folder" href="#/mail?internal=1">${icon("users")}${esc(mt("Previous staff messages", "Ujumbe wa zamani wa staff"))}</a></div>
+  </aside><section class="gm-main"><header class="gm-top"><div class="gm-search">${icon("search")}<input id="mail-search" type="search" placeholder="${esc(t("mail_search_ph"))}" aria-label="${esc(t("mail_search_ph"))}"></div>${button("mail-notifications", "bell", mt("Enable email notifications", "Washa notifications za email"))}</header>
+  <div class="gm-account" id="mail-account"></div><div class="gm-toolbar"><div class="row" id="mail-list-actions"><input id="mail-select-all" type="checkbox" aria-label="${esc(mt("Select all messages", "Chagua email zote"))}">${button("mail-refresh", "refresh", t("retry"))}${button("mail-archive", "archive", t("archive"))}${button("mail-trash", "trash", t("move_to_trash"))}${button("mail-unread", "mail", t("mark_unread"))}</div><span class="grow"></span><span class="muted small" id="mail-range"></span>${button("mail-prev", "chevronLeft", mt("Previous page", "Ukurasa uliopita"))}${button("mail-next", "chevronRight", mt("Next page", "Ukurasa unaofuata"))}</div>
+  <div class="gm-content" id="mail-content" aria-live="polite"></div><div class="gm-status muted small" id="mail-sync-status"></div></section></div>`;
+  const content = $("#mail-content", el);
+  const updateFolders = () => {
+    el.querySelectorAll("[data-folder]").forEach((b) => {
+      b.classList.toggle("active", b.dataset.folder === folder);
+      b.setAttribute(
+        "aria-current",
+        b.dataset.folder === folder ? "page" : "false",
+      );
     });
   };
-
-  el.addEventListener('click', async (e) => {
-    const r = e.target.closest('[data-r]');
-    if (r) {
-      const m = msgs.find((x) => x.id === r.dataset.m); if (!m) return;
-      if (r.dataset.r === 'fwd') {
-        const subj = /^fwd:/i.test(th.subject) ? th.subject : `Fwd: ${th.subject}`;
-        const quoted = `\n\n---------- Forwarded message ----------\nFrom: ${m.sender}\nDate: ${fdatetime(m.created_at)}\nSubject: ${th.subject}\n\n${m.body}`;
-        compose({ subject: subj, body: quoted });
-      } else openReply(m, r.dataset.r === 'all');
+  const syncNote = (message) => {
+    $("#mail-sync-status", el).textContent =
+      message ||
+      `${mt("Last refreshed", "Imesasishwa")}: ${fdatetime(new Date())}`;
+  };
+  const updateToolbar = () => {
+    $("#mail-select-all", el).disabled = !!view;
+    $("#mail-select-all", el).checked =
+      !!rows.length && selected.size === rows.length;
+    $("#mail-prev", el).disabled = offset === 0;
+    $("#mail-next", el).disabled = offset + 30 >= total;
+    $("#mail-range", el).textContent = total
+      ? `${offset + 1}–${Math.min(offset + 30, total)} / ${total}`
+      : "0";
+  };
+  async function load(quiet = false) {
+    if (disposed || view) return;
+    const seq = ++generation;
+    if (!quiet)
+      content.innerHTML =
+        '<div class="gm-loading"><div class="spinner"></div></div>';
+    try {
+      const s = await mailboxStatus();
+      if (disposed || seq !== generation) return;
+      $("#mail-account", el).textContent = s.connected
+        ? s.email
+        : mt(
+            "Connect your company mailbox to start sending and receiving.",
+            "Unganisha email yako ya kampuni ili utume na kupokea.",
+          );
+      if (!s.connected) {
+        content.innerHTML = `<div class="gm-welcome">${icon("mail")}<h2>${esc(mt("Your company email, in one place", "Email yako ya kampuni, sehemu moja"))}</h2><p>${esc(mt("Use your existing cPanel mailbox to email staff and customers.", "Tumia mailbox yako ya cPanel kuwasiliana na staff na wateja."))}</p><button class="btn primary" id="mail-start">${esc(mt("Connect mailbox", "Unganisha email"))}</button></div>`;
+        $("#mail-start", el).onclick = () =>
+          settings(() => {
+            resetMailbox();
+            load();
+          });
+        syncNote();
+        return;
+      }
+      if (folder === "drafts") {
+        const drafts = await mailApi("drafts");
+        if (disposed || seq !== generation) return;
+        content.innerHTML = drafts.length
+          ? drafts
+              .map(
+                (d) =>
+                  `<div class="gm-draft"><button class="gm-draft-open" data-draft="${d.id}"><b>${esc(d.payload.subject || mt("(No subject)", "(Hakuna kichwa)"))}</b><span>${esc(d.payload.to || "")}</span><time>${esc(ago(d.updated_at))}</time></button><button class="icon-btn" data-delete-draft="${d.id}" aria-label="${esc(mt("Delete draft", "Futa rasimu"))}">${icon("trash")}</button></div>`,
+              )
+              .join("")
+          : empty(mt("No drafts.", "Hakuna rasimu."), "file");
+        content.onclick = async (e) => {
+          const d = e.target.closest("[data-draft]");
+          if (d) {
+            const draft = drafts.find((x) => x.id === d.dataset.draft);
+            compose(load, draft.payload, draft.id);
+          }
+          const del = e.target.closest("[data-delete-draft]");
+          if (
+            del &&
+            (await confirmDialog(mt("Delete this draft?", "Futa rasimu hii?"), {
+              danger: true,
+            }))
+          ) {
+            try {
+              await mailApi("delete-draft", { id: del.dataset.deleteDraft });
+              load();
+            } catch (e) {
+              toast(e.message, "err");
+            }
+          }
+        };
+        rows = [];
+        total = 0;
+        updateToolbar();
+        return;
+      }
+      const r = await mailApi("list", { folder, q, offset });
+      if (disposed || seq !== generation) return;
+      rows = r.rows;
+      total = r.total;
+      validity = r.validity;
+      selected.clear();
+      content.onclick = null;
+      content.innerHTML = rows.length
+        ? `<div class="gm-list">${rows.map((m) => `<div class="gm-row ${m.unread ? "unread" : ""}"><input type="checkbox" data-select="${m.uid}" aria-label="${esc(mt("Select message", "Chagua email"))}"><button class="gm-star ${m.starred ? "starred" : ""}" data-star="${m.uid}" title="${esc(mt("Toggle star", "Badili nyota"))}" aria-label="${esc(mt("Toggle star", "Badili nyota"))}" aria-pressed="${m.starred}">☆</button><button class="gm-open" data-open="${m.uid}"><span class="gm-who">${esc(sender(folder === "sent" ? m.to : m.from))}</span><span class="gm-subject">${esc(m.subject)}</span><time title="${esc(fdatetime(m.date))}">${esc(ago(m.date))}</time></button></div>`).join("")}</div>`
+        : empty(t("no_mail"), "mail");
+      updateToolbar();
+      syncNote();
+    } catch (e) {
+      if (disposed || seq !== generation) return;
+      if (quiet) {
+        syncNote(e.message);
+        return;
+      }
+      content.innerHTML = `<div class="card-b"><div class="callout danger">${esc(e.message)}</div><button class="btn" id="mail-error-settings">${esc(mt("Mailbox settings", "Mipangilio ya email"))}</button></div>`;
+      $("#mail-error-settings", el).onclick = () => settings(() => load());
+    }
+  }
+  const mutate = async (stateName, uids = [...selected]) => {
+    if (!uids.length) {
+      toast(mt("Select a message first.", "Chagua email kwanza."), "info");
       return;
     }
-    const s = e.target.closest('[data-st]');
-    if (s) busy(s, async () => {
-      try {
-        await rpc('mail_set_state', { p_thread: id, p_action: s.dataset.st });
-        await refreshMailBadge();
-        if (['archive', 'trash', 'unread'].includes(s.dataset.st)) location.hash = '#/mail'; else rerender();
-      } catch (err) { toast(errText(err), 'err'); }
-    });
+    await mailApi("state", { folder, uids, validity, state: stateName });
+    view = null;
+    await load();
+    refreshMailBadge();
+  };
+  const openMessage = async (id) => {
+    view = id;
+    ++generation;
+    updateToolbar();
+    content.innerHTML =
+      '<div class="gm-loading"><div class="spinner"></div></div>';
+    try {
+      const m = await mailApi("read", { folder, uid: id, validity });
+      if (disposed || view !== id) return;
+      refreshMailBadge();
+      content.innerHTML = `<article class="gm-message"><div class="gm-message-tools"><button class="btn ghost" id="mail-back">← ${esc(t("inbox"))}</button><button class="btn ghost" id="message-archive">${icon("archive")}${esc(t("archive"))}</button><button class="btn ghost" id="message-trash">${icon("trash")}${esc(t("trash"))}</button>${folder === "trash" ? `<button class="btn ghost" id="message-restore">${esc(t("restore"))}</button>` : ""}</div><h1>${esc(m.subject)}</h1><header><span class="gm-avatar">${initial(sender(m.from))}</span><div class="grow"><b>${esc(sender(m.from))}</b><div class="muted small">${esc(address(m.from))}</div><div class="muted small">${esc(t("mail_to"))}: ${esc(address(m.to))}${m.cc?.length ? ` · CC: ${esc(address(m.cc))}` : ""}</div></div><time class="muted small">${esc(fdatetime(m.date))}</time></header><div class="gm-body">${esc(m.text)}</div><div class="gm-attachments">${m.attachments.map((a) => `<button class="btn" data-attachment="${a.index}">${icon("download")}${esc(a.filename)} · ${Math.ceil(a.size / 1024)} KB</button>`).join("")}</div><footer><button class="btn" id="message-reply">${icon("reply")}${esc(t("reply"))}</button><button class="btn" id="message-reply-all">${icon("replyAll")}${esc(t("reply_all"))}</button><button class="btn" id="message-forward">${icon("forward")}${esc(t("forward"))}</button></footer></article>`;
+      $("#mail-back", el).onclick = () => {
+        view = null;
+        load();
+      };
+      $("#message-trash", el).onclick = () =>
+        mutate("trash", [id]).catch((e) => toast(e.message, "err"));
+      $("#message-archive", el).onclick = () =>
+        mutate("archive", [id]).catch((e) => toast(e.message, "err"));
+      if ($("#message-restore", el))
+        $("#message-restore", el).onclick = () =>
+          mutate("inbox", [id]).catch((e) => toast(e.message, "err"));
+      const reply = (all) => {
+        const me = ((s) => s.toLowerCase())($("#mail-account", el).textContent);
+        const targets = [
+          ...new Set(
+            [...(m.replyTo || m.from), ...(all ? m.to : [])]
+              .map((x) => x.address)
+              .filter((x) => x && x.toLowerCase() !== me),
+          ),
+        ];
+        const cc = all
+          ? m.cc.filter(
+              (x) =>
+                x.address.toLowerCase() !== me && !targets.includes(x.address),
+            )
+          : [];
+        compose(
+          () => {
+            view = null;
+            load();
+          },
+          {
+            to: targets.join(", "),
+            cc: address(cc),
+            subject: /^re:/i.test(m.subject) ? m.subject : `Re: ${m.subject}`,
+            text: `\n\n${fdatetime(m.date)} · ${sender(m.from)}:\n${m.text}`,
+            inReplyTo: m.messageId,
+          },
+        );
+      };
+      $("#message-reply", el).onclick = () => reply(false);
+      $("#message-reply-all", el).onclick = () => reply(true);
+      $("#message-forward", el).onclick = () =>
+        compose(
+          () => {
+            view = null;
+            load();
+          },
+          {
+            subject: `Fwd: ${m.subject}`,
+            text: `\n\n---------- Forwarded message ----------\nFrom: ${sender(m.from)} <${address(m.from)}>\nDate: ${fdatetime(m.date)}\nSubject: ${m.subject}\n\n${m.text}`,
+          },
+        );
+      el.querySelectorAll("[data-attachment]").forEach(
+        (b) =>
+          (b.onclick = (ev) =>
+            busy(ev.currentTarget, async () => {
+              try {
+                const a = await mailApi("read", {
+                  folder,
+                  uid: id,
+                  validity,
+                  attachment: Number(b.dataset.attachment),
+                });
+                const blob = new Blob(
+                  [Uint8Array.from(atob(a.content), (c) => c.charCodeAt(0))],
+                  { type: "application/octet-stream" },
+                );
+                const url = URL.createObjectURL(blob);
+                const link = document.createElement("a");
+                link.href = url;
+                link.download = a.filename;
+                link.click();
+                setTimeout(() => URL.revokeObjectURL(url), 10000);
+              } catch (e) {
+                toast(e.message, "err");
+              }
+            })),
+      );
+    } catch (e) {
+      content.innerHTML = `<div class="card-b"><p>${esc(e.message)}</p><button class="btn" id="mail-back">${esc(t("back"))}</button></div>`;
+      $("#mail-back", el).onclick = () => {
+        view = null;
+        load();
+      };
+    }
+  };
+  el.addEventListener("click", (e) => {
+    const f = e.target.closest("[data-folder]");
+    if (f) {
+      folder = f.dataset.folder;
+      view = null;
+      offset = 0;
+      history.replaceState(null, "", `#/mail?f=${folder}`);
+      updateFolders();
+      load();
+    }
+    const open = e.target.closest("[data-open]");
+    if (open) openMessage(Number(open.dataset.open));
+    const star = e.target.closest("[data-star]");
+    if (star) {
+      const m = rows.find((x) => x.uid === Number(star.dataset.star));
+      mutate(m.starred ? "unstar" : "star", [m.uid]).catch((e) =>
+        toast(e.message, "err"),
+      );
+    }
   });
+  el.addEventListener("change", (e) => {
+    const check = e.target.closest("[data-select]");
+    if (check) {
+      const id = Number(check.dataset.select);
+      if (check.checked) selected.add(id);
+      else selected.delete(id);
+      updateToolbar();
+    }
+  });
+  $("#compose", el).onclick = () =>
+    compose(() => {
+      view = null;
+      load();
+    });
+  $("#mail-settings", el).onclick = () =>
+    settings(() => {
+      view = null;
+      load();
+    });
+  $("#mail-notifications", el).onclick = () =>
+    enableMailNotifications().catch((e) => toast(e.message, "err"));
+  $("#mail-refresh", el).onclick = () => {
+    view = null;
+    load();
+    refreshMailBadge();
+  };
+  $("#mail-select-all", el).onchange = (e) => {
+    selected = e.target.checked ? new Set(rows.map((m) => m.uid)) : new Set();
+    el.querySelectorAll("[data-select]").forEach((c) => {
+      c.checked = e.target.checked;
+    });
+  };
+  for (const [id, action] of [
+    ["mail-trash", "trash"],
+    ["mail-archive", "archive"],
+    ["mail-unread", "unread"],
+  ])
+    $("#" + id, el).onclick = () =>
+      mutate(action, view ? [view] : undefined).catch((e) =>
+        toast(e.message, "err"),
+      );
+  $("#mail-search", el).oninput = debounce((e) => {
+    q = e.target.value.trim();
+    offset = 0;
+    view = null;
+    load();
+  }, 350);
+  $("#mail-prev", el).onclick = () => {
+    offset = Math.max(0, offset - 30);
+    load();
+  };
+  $("#mail-next", el).onclick = () => {
+    offset += 30;
+    load();
+  };
+  const newEmail = () => {
+    if (!view && !selected.size) load(true);
+  };
+  window.addEventListener("hc:new-email", newEmail);
+  const timer = setInterval(() => {
+    if (
+      document.visibilityState === "visible" &&
+      !view &&
+      !selected.size &&
+      !document.querySelector(".modal-bg")
+    )
+      load(true);
+  }, 30000);
+  updateFolders();
+  await load();
+  refreshMailBadge();
+  if (query.get("compose") === "1") compose(load);
+  return () => {
+    disposed = true;
+    clearInterval(timer);
+    window.removeEventListener("hc:new-email", newEmail);
+  };
 }

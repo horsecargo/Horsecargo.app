@@ -44,6 +44,13 @@ jobs:
         run: node test/v5_test.mjs
       - name: Verify v6 roles, QR, CRM, mail and RLS
         run: node test/v6_test.mjs
+      - name: Verify mailbox transport, scheduled push and user deletion
+        run: |
+          node test/mail_transport_test.mjs
+          node test/mail_poll_test.mjs
+          node test/mail_v7_test.mjs
+      - name: Verify mailbox desktop/mobile, drafts, attachments and notification privacy
+        run: node test/mail_v7_e2e.mjs
       - name: Verify v5 document, PDF, packing and mobile regressions
         run: node test/v5_e2e.mjs
       - name: Verify v6 browser workflows and camera scan
