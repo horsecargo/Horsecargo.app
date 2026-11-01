@@ -188,6 +188,12 @@ try {
     (await page.locator("#email-to").inputValue()) === "care@hc.test",
     "reply-all excludes own mailbox",
   );
+  const keptFocus = await page.evaluate(async () => {
+    const input = document.querySelector('#email-text'); input.focus();
+    await new Promise(resolve => setTimeout(resolve, 60));
+    return document.activeElement === input;
+  });
+  ok(keptFocus, 'compose autofocus does not steal focus from the message');
   await page.locator("#email-text").fill("Fixture reply");
   await page.locator("#email-send").click();
   await page.locator("#mail-compose").waitFor({ state: "detached" });

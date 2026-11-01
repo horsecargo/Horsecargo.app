@@ -158,7 +158,10 @@ export function modal({ title, body, foot = '', wide = false, onMount }) {
   const m = { el: bg.querySelector('.modal'), close };
   if (onMount) onMount(m);
   const first = bg.querySelector('input:not([type=hidden]):not([readonly]), select, textarea');
-  if (first && window.matchMedia('(min-width: 861px)').matches) setTimeout(() => first.focus(), 30);
+  if (first && window.matchMedia('(min-width: 861px)').matches) setTimeout(() => {
+    // Do not steal focus after someone has already started typing in the modal.
+    if (document.body.contains(bg) && !bg.contains(document.activeElement)) first.focus();
+  }, 30);
   return m;
 }
 
