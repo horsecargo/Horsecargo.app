@@ -1,6 +1,6 @@
 // Horse Cargo service worker — caches the app shell so it opens instantly and offline.
 // Data always comes live from Supabase (never cached).
-const CACHE = 'hc-shell-2de072fe5846d90a';
+const CACHE = 'hc-shell-96ef30313413ab38';
 const SHELL = [
   './', 'index.html', 'track.html', 'verify.html', 'config.js', 'manifest.webmanifest', 'css/app.css', 'css/mail.css',
   'vendor/supabase.js', 'vendor/qrcode.js', 'vendor/html5-qrcode.min.js',

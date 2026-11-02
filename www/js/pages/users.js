@@ -252,6 +252,7 @@ function staffModal(u, live, after) {
         ${state.branches.map((b) => `<option value="${b.code}" ${u.branch_code === b.code ? 'selected' : ''}>${esc(b.code)} · ${esc(b.name)}</option>`).join('')}</select></div>
       <label class="row small full"><input type="checkbox" name="active" ${u.active ? 'checked' : ''} ${self ? 'disabled' : ''}> ${esc(t('active'))}</label>
       ${self ? `<div class="hint full">${esc(t('cannot_change_self'))}</div>` : ''}
+      ${self ? `<div class="hint full">${esc(mt('To hand over administration, give another active staff member the Admin role, then sign in with their account to delete this one.', 'Ili kukabidhi usimamizi, mpe mfanyakazi mwingine aliye active role ya Admin, kisha ingia kwa akaunti yake kufuta hii.'))}</div>` : ''}
       ${mine.length ? `<div class="full"><div class="lbl">${esc(t('special_access'))}</div>
         ${mine.map((g) => `<div class="small">${esc(t('p_' + g.permission.replace('.', '_')))} · ${g.expires_at ? esc(t('until')) + ' ' + fdatetime(g.expires_at) : esc(t('no_expiry'))}</div>`).join('')}
         <div class="hint">${esc(t('deactivate_revokes'))}</div></div>` : ''}

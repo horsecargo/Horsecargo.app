@@ -491,6 +491,8 @@ textarea.input { min-height: 72px; resize: vertical; }
 
 /* ───────── shipment wizard (v2) ───────── */
 .wiz { display: flex; flex-direction: column; gap: 12px; }
+.shipment-party-title { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.shipment-party-title > svg { width: 18px; height: 18px; flex: 0 0 18px; }
 .wiz-steps { display: flex; gap: 4px; overflow-x: auto; padding-bottom: 2px; scrollbar-width: none; }
 .wiz-steps::-webkit-scrollbar { display: none; }
 .wiz-step { display: flex; align-items: center; gap: 7px; padding: 7px 12px; border-radius: 999px; background: #fff;

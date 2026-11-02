@@ -73,7 +73,7 @@ export async function render({ el, params, setTitle, query }) {
   const partyBox = (who) => {
     const p = d[who];
     return `<div class="card" style="box-shadow:none;border:1px solid var(--line)">
-      <div class="card-h"><h2>${icon(who === 'sender' ? 'user' : 'users')}${esc(t(who))}</h2>
+      <div class="card-h"><h2 class="shipment-party-title">${icon(who === 'sender' ? 'user' : 'users')}${esc(t(who))}</h2>
         ${p.customer_id ? `<span class="badge plain">${esc(t('existing_customer'))}</span>` : ''}</div>
       <div class="card-b">
         <div class="search" style="margin-bottom:10px"><span>${icon('search')}</span>
