@@ -1,5 +1,15 @@
 # Horse Cargo — Cargo Operating System (v1.0)
 
+## Website sourcing intake (v8)
+
+The sourcing form on horsecargoltd.com now also lands in the app as a **Lead** (source `website`) with a linked **Sourcing request**, both *new* and unassigned. The website keeps its own copy and email as before.
+
+1. Apply `supabase/website-intake-v8.sql` (after `mail-v7.sql`). Only the service role may call `website_intake()`.
+2. Set `WEBSITE_INTAKE_SECRET` in Netlify (see `.env.mail.example`) and the same value as `HC_INTAKE_SECRET` in the website's `.env`.
+3. The website signs each request (`X-HC-Timestamp`, `X-HC-Signature` = HMAC-SHA256 of `timestamp.body`) and posts it to `/.netlify/functions/website-intake`. Retries with the same website reference never create duplicates.
+
+Test: `node test/website_intake_test.mjs`.
+
 ## Roles, Leads, Sourcing, Staff Mail & QR scan update (v6)
 
 Install **after** v5, in two steps (Postgres needs the new role values committed before they are used):
