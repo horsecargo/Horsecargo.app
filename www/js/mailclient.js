@@ -39,6 +39,10 @@ let statusAt = 0;
 let owner = null;
 let last = null;
 let checkInFlight = null;
+// Each check is an IMAP login through a Netlify function, so page navigation
+// reuses a recent result; the 30-second poll and Mail actions still refresh.
+const CHECK_REUSE_MS = 25000;
+let checkedAt = 0;
 export function resetMailbox() {
   status = null;
   statusAt = 0;
@@ -123,8 +127,10 @@ export async function stopMailNotifications() {
   if (reg) (await reg.getNotifications()).forEach((n) => n.close());
   resetMailbox();
 }
-export function checkMailbox() {
+export function checkMailbox({ force = false } = {}) {
   if (checkInFlight) return checkInFlight;
+  if (!force && last && Date.now() - checkedAt < CHECK_REUSE_MS)
+    return Promise.resolve(last.unread);
   const current = state.profile?.id;
   checkInFlight = (async () => {
     const s = await mailboxStatus();
@@ -136,6 +142,7 @@ export function checkMailbox() {
       last.validity === info.validity &&
       info.latestUid > last.latestUid;
     last = info;
+    checkedAt = Date.now();
     if (newer) {
       toast(
         mt(

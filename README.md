@@ -1,5 +1,14 @@
 # Horse Cargo — Cargo Operating System (v1.0)
 
+## Speed, security headers and database fixes (v9)
+
+Apply `supabase/security-v9.sql` after `website-intake-v8.sql`. It removes direct API access to internal accounting helpers (`acc_post`, `write_freight_line` and others that have no permission check of their own), pins `search_path` on older helper functions, drops a duplicate shipments index and indexes every unindexed foreign key. Rerunnable.
+
+- The app shell loads with deferred scripts; jsPDF (~450 KB) loads only when a PDF is downloaded.
+- Moving between pages reuses an IMAP mailbox check made in the last 25 seconds; the 30-second poll and Mail actions still check immediately.
+- `netlify.toml` sends a Content-Security-Policy (no inline scripts or `onclick` attributes; Supabase is the only external origin), `X-Frame-Options`, `nosniff`, `Referrer-Policy` and `Permissions-Policy` (camera on this origin only). If a new external service is added, add its origin to the policy.
+- The Android TWA opens `app.horsecargoltd.com`. Full screen without the browser bar needs a release APK signed with the key whose fingerprint is in `www/.well-known/assetlinks.json`; see [docs/android-updates.md](docs/android-updates.md).
+
 ## Website sourcing intake (v8)
 
 The sourcing form on horsecargoltd.com now also lands in the app as a **Lead** (source `website`) with a linked **Sourcing request**, both *new* and unassigned. The website keeps its own copy and email as before.
@@ -150,7 +159,7 @@ Mara tu baada ya kupeleka hewani: fungua app → **"Mfanyakazi mpya? Omba kuingi
 **Mtu wa kwanza kujisajili anakuwa Administrator moja kwa moja.** Wafanyakazi wengine wanajisajili hivyo hivyo, kisha admin anawapa cheo + tawi kwenye **Watumiaji** na kuwawasha.
 
 ### E. APK ya Android
-APK ya live inafungua **https://horsecargoapp.netlify.app** kupitia Trusted Web Activity.
+APK ya live inafungua **https://app.horsecargoltd.com** kupitia Trusted Web Activity.
 User ana-install APK iliyosainiwa mara moja; mabadiliko ya web app yanamfikia baada ya
 Netlify deployment. App iliyo wazi inaonyesha **Sasisha sasa** ili user ahifadhi kazi
 yake kabla ya kutumia update. Mabadiliko ya Android yenyewe yanahitaji APK mpya.

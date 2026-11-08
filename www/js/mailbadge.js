@@ -17,13 +17,13 @@ function paint(n) {
 
 let again = false;
 export function clearMailBadge() { paint(0); }
-export function refreshMailBadge() {
+export function refreshMailBadge({ force = false } = {}) {
   if (!state.profile?.active || !can('mail.use')) return Promise.resolve(0);
   // a call made while one is running (e.g. right after opening a message) must
   // end with the newer count, so queue exactly one follow-up
-  if (inflight) { again = true; return inflight; }
+  if (inflight) { again = { force: force || !!again.force }; return inflight; }
   const userId = state.profile.id;
-  inflight = Promise.allSettled([rpc('mail_unread_count'), checkMailbox()])
+  inflight = Promise.allSettled([rpc('mail_unread_count'), checkMailbox({ force })])
     .then((results) => {
       if (state.profile?.id !== userId) return 0;
       const n = results.reduce((sum, r) => sum + (r.status === 'fulfilled' ? Number(r.value) || 0 : 0), 0);
@@ -31,6 +31,6 @@ export function refreshMailBadge() {
     })
     .catch(() => last)
     .finally(() => { inflight = null; })
-    .then((n) => { if (again) { again = false; return refreshMailBadge(); } return n; });
+    .then((n) => { if (again) { const next = again; again = false; return refreshMailBadge(next); } return n; });
   return inflight;
 }

@@ -456,7 +456,7 @@ async function mailbox({ el, setTitle, query }) {
     await mailApi("state", { folder, uids, validity, state: stateName });
     view = null;
     await load();
-    refreshMailBadge();
+    refreshMailBadge({ force: true });
   };
   const openMessage = async (id) => {
     view = id;
@@ -467,7 +467,7 @@ async function mailbox({ el, setTitle, query }) {
     try {
       const m = await mailApi("read", { folder, uid: id, validity });
       if (disposed || view !== id) return;
-      refreshMailBadge();
+      refreshMailBadge({ force: true });
       content.innerHTML = `<article class="gm-message"><div class="gm-message-tools"><button class="btn ghost" id="mail-back">← ${esc(t("inbox"))}</button><button class="btn ghost" id="message-archive">${icon("archive")}${esc(t("archive"))}</button><button class="btn ghost" id="message-trash">${icon("trash")}${esc(t("trash"))}</button>${folder === "trash" ? `<button class="btn ghost" id="message-restore">${esc(t("restore"))}</button>` : ""}</div><h1>${esc(m.subject)}</h1><header><span class="gm-avatar">${initial(sender(m.from))}</span><div class="grow"><b>${esc(sender(m.from))}</b><div class="muted small">${esc(address(m.from))}</div><div class="muted small">${esc(t("mail_to"))}: ${esc(address(m.to))}${m.cc?.length ? ` · CC: ${esc(address(m.cc))}` : ""}</div></div><time class="muted small">${esc(fdatetime(m.date))}</time></header><div class="gm-body">${esc(m.text)}</div><div class="gm-attachments">${m.attachments.map((a) => `<button class="btn" data-attachment="${a.index}">${icon("download")}${esc(a.filename)} · ${Math.ceil(a.size / 1024)} KB</button>`).join("")}</div><footer><button class="btn" id="message-reply">${icon("reply")}${esc(t("reply"))}</button><button class="btn" id="message-reply-all">${icon("replyAll")}${esc(t("reply_all"))}</button><button class="btn" id="message-forward">${icon("forward")}${esc(t("forward"))}</button></footer></article>`;
       $("#mail-back", el).onclick = () => {
         view = null;
@@ -600,7 +600,7 @@ async function mailbox({ el, setTitle, query }) {
   $("#mail-refresh", el).onclick = () => {
     view = null;
     load();
-    refreshMailBadge();
+    refreshMailBadge({ force: true });
   };
   $("#mail-select-all", el).onchange = (e) => {
     selected = e.target.checked ? new Set(rows.map((m) => m.uid)) : new Set();
@@ -646,7 +646,7 @@ async function mailbox({ el, setTitle, query }) {
   }, 30000);
   updateFolders();
   await load();
-  refreshMailBadge();
+  refreshMailBadge({ force: true });
   if (query.get("compose") === "1") compose(load);
   return () => {
     disposed = true;

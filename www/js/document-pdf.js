@@ -1,8 +1,25 @@
 import { busy, toast } from './ui.js';
 
+// jsPDF (~450 KB) is only needed when a document is downloaded, so it is not
+// loaded with the app shell. AutoTable extends jsPDF and must load after it.
+let loading = null;
+function script(src) {
+  return new Promise((ok, bad) => {
+    const s = document.createElement('script'); s.src = src; s.onload = ok; s.onerror = bad; document.head.appendChild(s);
+  });
+}
+function loadLib() {
+  if (window.jspdf?.jsPDF?.API?.autoTable) return Promise.resolve();
+  if (!loading) loading = script('vendor/jspdf.umd.min.js')
+    .then(() => script('vendor/jspdf.plugin.autotable.min.js'))
+    .catch((e) => { loading = null; throw e; });
+  return loading;
+}
+
 // Export the currently rendered, escaped document: one source of displayed facts
 // for print and download. AutoTable paginates real text and repeats table headers.
 export async function buildPDF(root) {
+  try { await loadLib(); } catch { /* reported below */ }
   if (!window.jspdf?.jsPDF) throw new Error('PDF library unavailable; reload the app.');
   const pdf = new window.jspdf.jsPDF({orientation:'portrait',unit:'mm',format:'a4'});
   const margin=12, width=186, bottom=282; let y=margin;
