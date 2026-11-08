@@ -12,7 +12,7 @@ android {
         targetSdk 35
         versionCode appCode
         versionName System.getenv('HC_VERSION_NAME') ?: '2.0.0'
-        manifestPlaceholders = [appHost: 'horsecargoapp.netlify.app']
+        manifestPlaceholders = [appHost: 'app.horsecargoltd.com']
     }
     signingConfigs {
         release {

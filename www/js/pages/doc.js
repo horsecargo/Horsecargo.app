@@ -37,7 +37,7 @@ function header(title, ref, extra = '') {
   </div>`;
 }
 const toolbar = (back, share) => `<div class="doc-toolbar"><a class="btn" href="${back}">${icon('arrowLeft')}${esc(t('back'))}</a>
-  ${isNative() ? '' : `<button class="btn primary" onclick="window.print()">${icon('print')}${esc(t('print'))}</button>`}${share || ''}<button class="btn" id="download-pdf">${icon('download')}Download PDF</button></div>`;
+  ${isNative() ? '' : `<button class="btn primary" data-print>${icon('print')}${esc(t('print'))}</button>`}${share || ''}<button class="btn" id="download-pdf">${icon('download')}Download PDF</button></div>`;
 
 export async function render({ el, params, setTitle }) {
   const [type, id] = params;

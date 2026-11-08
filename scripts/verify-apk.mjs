@@ -22,7 +22,7 @@ if (!badging.includes(`package: name='${expectedPackage}'`)) throw new Error('Un
 if (!badging.includes("sdkVersion:'24'")) throw new Error('Unexpected minimum Android SDK.');
 if (!preview && badging.includes('application-debuggable')) throw new Error('Release must not be debuggable.');
 const manifest = run('aapt', ['dump', 'xmltree', apk, 'AndroidManifest.xml']);
-if (!manifest.includes('https://horsecargoapp.netlify.app/index.html')) throw new Error('Unexpected live app URL.');
+if (!manifest.includes('https://app.horsecargoltd.com/index.html')) throw new Error('Unexpected live app URL.');
 const certificate = run('apksigner', ['verify', '--verbose', '--print-certs', apk]);
 const digest = certificate.match(/Signer #1 certificate SHA-256 digest: ([a-f0-9]+)/i)?.[1]?.toUpperCase();
 if (!digest) throw new Error('Missing signing certificate.');

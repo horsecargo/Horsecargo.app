@@ -1,6 +1,6 @@
 # Android APK and web updates
 
-The live APK opens **https://horsecargoapp.netlify.app/index.html** using Google's
+The live APK opens **https://app.horsecargoltd.com/index.html** using Google's
 Trusted Web Activity library. The existing Capacitor project remains available
 as a bundled build; `android/live` is the default distribution build.
 

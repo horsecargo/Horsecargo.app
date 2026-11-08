@@ -165,7 +165,7 @@ async function route() {
   } catch (e) {
     console.error(e);
     page.innerHTML = `<div class="card card-b"><div class="callout danger">${icon('alert')}<div>${esc(errText(e))}</div></div>
-      <div style="margin-top:12px"><button class="btn" onclick="location.reload()">${esc(t('retry'))}</button></div></div>`;
+      <div style="margin-top:12px"><button class="btn" data-reload>${esc(t('retry'))}</button></div></div>`;
   }
 }
 
@@ -260,7 +260,7 @@ function renderInactive() {
     <div class="brand"><img src="icons/icon-192.png" alt=""><div><b>HORSE CARGO</b></div></div>
     <div class="callout warn">${icon('lock')}<div><b>${esc(t('inactive_title'))}</b><br>${esc(t('inactive_body'))}</div></div>
     <div class="muted small">${esc(state.user?.email || '')}</div>
-    <div class="row"><button class="btn" onclick="location.reload()">${esc(t('retry'))}</button><button class="btn danger" data-logout>${esc(t('logout'))}</button></div>
+    <div class="row"><button class="btn" data-reload>${esc(t('retry'))}</button><button class="btn danger" data-logout>${esc(t('logout'))}</button></div>
   </div></div>`;
 }
 
@@ -279,7 +279,7 @@ async function boot() {
     console.error(e);
     $('#app').innerHTML = `<div class="auth-form" style="min-height:100vh"><div class="auth-box card card-b stack">
       <div class="callout danger">${icon('alert')}<div>${esc(errText(e))}</div></div>
-      <div class="row"><button class="btn primary" onclick="location.reload()">${esc(t('retry'))}</button><button class="btn" data-logout>${esc(t('logout'))}</button></div></div></div>`;
+      <div class="row"><button class="btn primary" data-reload>${esc(t('retry'))}</button><button class="btn" data-logout>${esc(t('logout'))}</button></div></div></div>`;
   }
 }
 
@@ -287,7 +287,7 @@ async function boot() {
 let mailTimer = null;
 function startMailPolling() {
   if (mailTimer || !can('mail.use')) return;
-  mailTimer = setInterval(() => { if (document.visibilityState === 'visible') refreshMailBadge(); }, 30000);
+  mailTimer = setInterval(() => { if (document.visibilityState === 'visible') refreshMailBadge({ force: true }); }, 30000);
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') refreshMailBadge(); });
 }
 
@@ -302,6 +302,9 @@ document.addEventListener('click', async (e) => {
   if (l) { setLang(l.dataset.lang); if (state.profile?.active) { renderShell(); route(); } else boot(); return; }
   if (e.target.closest('[data-logout]')) { await stopMailNotifications(); await sb?.auth.signOut(); state.profile = null; clearMailBadge(); resetMailbox(); location.hash = '#/'; boot(); return; }
   if (e.target.closest('[data-back]')) { if (history.length > 1) history.back(); else location.hash = '#/'; }
+  // inline onclick attributes are blocked by the Content-Security-Policy
+  if (e.target.closest('[data-reload]')) { location.reload(); return; }
+  if (e.target.closest('[data-print]')) window.print();
 });
 window.addEventListener('hashchange', route);
 if (sb) sb.auth.onAuthStateChange((ev) => { if (ev === 'SIGNED_OUT' && state.profile) { identifyMailUser(null); state.profile = null; clearMailBadge(); resetMailbox(); renderLogin(); } });
