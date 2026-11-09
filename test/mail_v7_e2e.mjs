@@ -265,6 +265,8 @@ try {
       drafts.length === 0,
     "send includes attachment and removes sent draft",
   );
+  await page.locator('[data-folder="inbox"]').click();
+  await page.locator(".gm-row").first().waitFor();
   await page.locator("#mail-box").selectOption("box-acct");
   await page.locator(".gm-row").first().waitFor();
   await page.locator("#compose").click();
