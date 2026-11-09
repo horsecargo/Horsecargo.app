@@ -19,6 +19,8 @@ export const required = (name) =>
     503,
     "Mail service is not configured. Ask the administrator to complete server setup.",
   );
+// The mailbox ID is bound to each ciphertext, so a password cannot be copied
+// from one mailbox row to another.
 export function encrypt(password, userId) {
   const key = Buffer.from(required("MAIL_ENCRYPTION_KEY"), "base64");
   if (key.length !== 32)
@@ -97,10 +99,27 @@ export async function authorize(event, permission = "mail.use") {
     fail(403, "Mail access is not allowed.");
   return { ...p, token };
 }
-export async function accountFor(id) {
-  const [a] = await db(`/rest/v1/mail_accounts?user_id=eq.${id}&select=*`);
-  if (!a) fail(409, "Connect your cPanel mailbox in Mail settings first.");
+export const isUuid = (v) => /^[a-f\d-]{36}$/i.test(v || "");
+// A department mailbox the signed-in staff member may use (admins: any).
+export async function mailboxFor(profile, id) {
+  if (!isUuid(id)) fail(400, "Choose a mailbox.");
+  if (
+    !(await db("/rest/v1/rpc/mail_can_use_mailbox", {
+      method: "POST",
+      body: { p_user: profile.id, p_mailbox: id },
+    }))
+  )
+    fail(403, "You are not assigned to this mailbox.");
+  const [a] = await db(`/rest/v1/mail_mailboxes?id=eq.${id}&select=*`);
+  if (!a?.password_cipher)
+    fail(409, "This mailbox is not connected yet. Ask the CEO to connect it.");
   return a;
+}
+export const COMPANY_LINE =
+  "Horse Cargo Ltd | +971 50 608 3531 | horsecargoltd.com";
+// Every department email names the staff member who wrote it.
+export function signature(profile, mailbox) {
+  return `\n\n--\n${profile.full_name || profile.email}\n${mailbox.name}\n${COMPANY_LINE}`;
 }
 export function smtp(account) {
   const port = Number(process.env.MAIL_SMTP_PORT || 465);
@@ -113,7 +132,7 @@ export function smtp(account) {
     requireTLS: true,
     auth: {
       user: account.email,
-      pass: decrypt(account.password_cipher, account.user_id),
+      pass: decrypt(account.password_cipher, account.id),
     },
     connectionTimeout: 12000,
     greetingTimeout: 12000,
@@ -130,7 +149,7 @@ export async function withImap(account, fn, { deadlineMs = 50000 } = {}) {
     secure: true,
     auth: {
       user: account.email,
-      pass: decrypt(account.password_cipher, account.user_id),
+      pass: decrypt(account.password_cipher, account.id),
     },
     logger: false,
     connectionTimeout: 12000,
@@ -423,7 +442,7 @@ export async function sendMail(a, profile, input) {
     fail(400, "Invalid send request.");
   const message = validateMessage(input);
   const [old] = await db(
-    `/rest/v1/mail_deliveries?id=eq.${input.requestId}&user_id=eq.${a.user_id}`,
+    `/rest/v1/mail_deliveries?id=eq.${input.requestId}&user_id=eq.${profile.id}`,
   );
   if (old)
     return {
@@ -437,13 +456,17 @@ export async function sendMail(a, profile, input) {
     const sentPath = await folderPath(c, "sent", true);
     await db("/rest/v1/mail_deliveries", {
       method: "POST",
-      body: { id: input.requestId, user_id: a.user_id },
+      body: { id: input.requestId, user_id: profile.id, mailbox_id: a.id },
     });
     const transport = smtp(a);
     const messageId = `<${input.requestId}@${a.email.split("@")[1]}>`;
     const raw = await new MailComposer({
       ...message,
-      from: { name: profile.full_name || "", address: a.email },
+      text: message.text + signature(profile, a),
+      from: {
+        name: `${profile.full_name || profile.email} – ${a.name}`,
+        address: a.email,
+      },
       messageId,
       date: new Date(),
       disableFileAccess: true,

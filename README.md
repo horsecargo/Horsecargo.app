@@ -1,5 +1,14 @@
 # Horse Cargo — Cargo Operating System (v1.0)
 
+## Several roles per person and department mailboxes (v10)
+
+Apply `supabase/staff-mail-v10.sql` after `security-v9.sql`, then deploy. Rerunnable.
+
+- **Roles**: `profiles.role` stays the primary role; *Users → staff profile → Additional roles* adds more (e.g. Manager + HR + Accounting). `has_perm`, `has_role` and `my_permissions` combine every role, so menus, RPCs and RLS follow automatically. Admin is only ever a primary role.
+- **Department mailboxes**: `ceo@`, `administration@`, `accounting@`, `sales@`, `marketing@`, `sourcing@` and `stores@` are seeded in `mail_mailboxes`. The administrator opens *Mail → Mailbox settings*, enters each cPanel mailbox password once (encrypted, bound to the mailbox ID, never shown to staff) and ticks who uses it; the same choice is on each staff profile. Administrators can open every mailbox.
+- **Sending**: staff with more than one mailbox pick it in Mail. Every message goes out as `"<Name> – <Department>" <dept@…>` with a signature naming the sender, and `mail_deliveries` records the sender and mailbox.
+- **Notifications**: the scheduled check runs per department mailbox and notifies its members and administrators. Personal `mail_accounts` rows from v7 are no longer used.
+
 ## Speed, security headers and database fixes (v9)
 
 Apply `supabase/security-v9.sql` after `website-intake-v8.sql`. It removes direct API access to internal accounting helpers (`acc_post`, `write_freight_line` and others that have no permission check of their own), pins `search_path` on older helper functions, drops a duplicate shipments index and indexes every unindexed foreign key. Rerunnable.

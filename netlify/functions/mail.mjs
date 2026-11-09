@@ -1,7 +1,8 @@
 import {
   authorize,
   db,
-  accountFor,
+  mailboxFor,
+  isUuid,
   encrypt,
   smtp,
   withImap,
@@ -10,7 +11,6 @@ import {
   setMailState,
   sendMail,
   inboxStatus,
-  validateRecipients,
   required,
   fail,
   HttpError,
@@ -35,9 +35,10 @@ export async function handler(event) {
     } catch {
       fail(400, "Invalid request.");
     }
+    const adminOnly = ["delete-user", "mailbox-connect", "mailbox-disconnect"];
     const p = await authorize(
       event,
-      input.action === "delete-user" ? "admin" : "mail.use",
+      adminOnly.includes(input.action) ? "admin" : "mail.use",
     );
     if (input.action === "delete-user") {
       if (!/^[a-f\d-]{36}$/i.test(input.userId || "") || input.userId === p.id)
@@ -67,12 +68,27 @@ export async function handler(event) {
       return reply(200, { disabled: true, authDeleted: true });
     }
     if (input.action === "status") {
-      const rows = await db(
-        `/rest/v1/mail_accounts?user_id=eq.${p.id}&select=email`,
+      // Mailboxes this person may use: administrators see every department.
+      const all = await db(
+        "/rest/v1/mail_mailboxes?select=id,email,name,password_cipher&order=name",
       );
+      const mine =
+        p.role === "admin"
+          ? all
+          : await db(
+              `/rest/v1/mail_mailbox_members?user_id=eq.${p.id}&select=mailbox_id`,
+            ).then((rows) => {
+              const ids = new Set(rows.map((r) => r.mailbox_id));
+              return all.filter((b) => ids.has(b.id));
+            });
       return reply(200, {
-        connected: !!rows.length,
-        email: rows[0]?.email || "",
+        mailboxes: mine.map((b) => ({
+          id: b.id,
+          email: b.email,
+          name: b.name,
+          connected: !!b.password_cipher,
+        })),
+        admin: p.role === "admin",
         configured: !!(
           process.env.MAIL_IMAP_HOST &&
           process.env.MAIL_SMTP_HOST &&
@@ -81,13 +97,18 @@ export async function handler(event) {
         vapidPublicKey: process.env.MAIL_VAPID_PUBLIC_KEY || "",
       });
     }
-    if (input.action === "connect") {
-      const [email] = validateRecipients(input.email, true);
+    if (input.action === "mailbox-connect") {
+      // The CEO enters a department mailbox password once; staff never see it.
+      if (!isUuid(input.mailbox)) fail(400, "Choose a mailbox.");
+      const [box] = await db(
+        `/rest/v1/mail_mailboxes?id=eq.${input.mailbox}&select=id,email,name`,
+      );
+      if (!box) fail(404, "Mailbox not found.");
       const domains = required("MAIL_ALLOWED_DOMAINS")
         .toLowerCase()
         .split(",")
         .map((x) => x.trim());
-      if (!domains.includes(email.split("@")[1].toLowerCase()))
+      if (!domains.includes(box.email.split("@")[1].toLowerCase()))
         fail(400, "Use a company mailbox in the configured email domain.");
       if (
         typeof input.password !== "string" ||
@@ -95,11 +116,7 @@ export async function handler(event) {
         input.password.length > 1024
       )
         fail(400, "Enter the mailbox password.");
-      const a = {
-        user_id: p.id,
-        email: email.toLowerCase(),
-        password_cipher: encrypt(input.password, p.id),
-      };
+      const a = { ...box, password_cipher: encrypt(input.password, box.id) };
       await withImap(a, async () => {});
       const transport = smtp(a);
       try {
@@ -108,29 +125,28 @@ export async function handler(event) {
         transport.close();
       }
       const baseline = await inboxStatus(a);
-      const previous = await db(
-        `/rest/v1/mail_accounts?user_id=eq.${p.id}&select=email`,
-      );
-      if (previous.length && previous[0].email !== a.email)
-        fail(409, "Disconnect the previous mailbox first.");
-      await db("/rest/v1/mail_accounts?on_conflict=user_id", {
-        method: "POST",
-        prefer: "resolution=merge-duplicates",
+      await db(`/rest/v1/mail_mailboxes?id=eq.${box.id}`, {
+        method: "PATCH",
         body: {
-          ...a,
+          password_cipher: a.password_cipher,
           last_uid: baseline.latestUid,
           uid_validity: baseline.validity,
+          connected_by: p.id,
           updated_at: new Date().toISOString(),
         },
       });
-      return reply(200, { connected: true, email: a.email });
+      return reply(200, { connected: true, email: box.email });
     }
-    if (input.action === "disconnect") {
-      await db(`/rest/v1/mail_accounts?user_id=eq.${p.id}`, {
-        method: "DELETE",
-      });
-      await db(`/rest/v1/mail_push_subscriptions?user_id=eq.${p.id}`, {
-        method: "DELETE",
+    if (input.action === "mailbox-disconnect") {
+      if (!isUuid(input.mailbox)) fail(400, "Choose a mailbox.");
+      await db(`/rest/v1/mail_mailboxes?id=eq.${input.mailbox}`, {
+        method: "PATCH",
+        body: {
+          password_cipher: null,
+          last_uid: null,
+          uid_validity: null,
+          updated_at: new Date().toISOString(),
+        },
       });
       return reply(200, { ok: true });
     }
@@ -220,7 +236,7 @@ export async function handler(event) {
       });
       return reply(200, { ok: true });
     }
-    const a = await accountFor(p.id);
+    const a = await mailboxFor(p, input.mailbox);
     if (input.action === "list") return reply(200, await listMail(a, input));
     if (input.action === "read") return reply(200, await readMail(a, input));
     if (input.action === "state")

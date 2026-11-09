@@ -49,6 +49,7 @@ jobs:
           node test/mail_transport_test.mjs
           node test/mail_poll_test.mjs
           node test/mail_v7_test.mjs
+          node test/staff_mail_v10_test.mjs
       - name: Verify mailbox desktop/mobile, drafts, attachments and notification privacy
         run: node test/mail_v7_e2e.mjs
       - name: Verify v5 document, PDF, packing and mobile regressions
