@@ -3,7 +3,11 @@ import { getLang } from "./i18n.js";
 import { toast } from "./ui.js";
 
 export const mt = (en, sw) => (getLang() === "sw" ? sw : en);
+// Actions that read or write a department mailbox carry the chosen mailbox.
+const MAILBOX_ACTIONS = ["list", "read", "state", "send", "check"];
 export async function mailApi(action, input = {}) {
+  if (MAILBOX_ACTIONS.includes(action) && !input.mailbox)
+    input = { ...input, mailbox: currentMailbox()?.id };
   const { data } = await sb.auth.getSession();
   if (!data.session)
     throw Error(mt("Please sign in.", "Ingia kwenye akaunti."));
@@ -49,6 +53,37 @@ export function resetMailbox() {
   owner = state.profile?.id || null;
   last = null;
 }
+// The department mailbox in view, remembered per staff member on this device.
+const pickKey = () => `hc.mailbox.${state.profile?.id || ""}`;
+function pick(list) {
+  let saved = null;
+  try {
+    saved = localStorage.getItem(pickKey());
+  } catch {
+    /* private mode: fall back to the first mailbox */
+  }
+  return (
+    list.find((b) => b.id === saved && b.connected) ||
+    list.find((b) => b.connected) ||
+    list[0] ||
+    null
+  );
+}
+export const currentMailbox = () => status?.current || null;
+export function setCurrentMailbox(id) {
+  try {
+    localStorage.setItem(pickKey(), id);
+  } catch {
+    /* remembered for this page only */
+  }
+  if (status) {
+    status.current = status.mailboxes.find((b) => b.id === id) || status.current;
+    status.connected = !!status.current?.connected;
+    status.email = status.current?.email || "";
+  }
+  last = null;
+  checkedAt = 0;
+}
 export async function mailboxStatus(force = false) {
   if (owner !== state.profile?.id) resetMailbox();
   if (!force && status && Date.now() - statusAt < 60000) return status;
@@ -61,7 +96,13 @@ export async function mailboxStatus(force = false) {
         "Akaunti imebadilika. Fungua Barua tena.",
       ),
     );
-  status = result;
+  const current = pick(result.mailboxes || []);
+  status = {
+    ...result,
+    current,
+    connected: !!current?.connected,
+    email: current?.email || "",
+  };
   statusAt = Date.now();
   return status;
 }

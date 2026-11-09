@@ -28,13 +28,18 @@ export async function render({ el, setTitle, query, rerender }) {
   let tab = admin ? (['access', 'invites', 'perms', 'deleted'].includes(query.get('tab')) ? query.get('tab') : 'staff') : 'staff';
   let roleFilter = ''; let nameFilter = '';
 
-  const [rows, grants, invites, assignable, grantable] = await Promise.all([
+  const [rows, grants, invites, assignable, grantable, extraRoles, mailboxes] = await Promise.all([
     run(from('profiles').select('*').order('active', { ascending: false }).order('full_name')),
     admin ? run(from('v_permission_grants').select('*').order('granted_at', { ascending: false }).limit(100)) : [],
     admin ? run(from('staff_invites').select('*').is('cancelled_at', null).order('invited_at', { ascending: false })).catch(() => []) : [],
     rpc('assignable_roles').catch(() => ROLES),
     admin ? rpc('grantable_permissions').catch(() => Object.keys(PERM_HINT)) : [],
+    run(from('staff_roles').select('user_id,role')).catch(() => []),
+    admin ? rpc('admin_mailboxes').catch(() => []) : [],
   ]);
+  // v10: a staff member may hold extra roles on top of the primary one.
+  const rolesOf = (id) => extraRoles.filter((r) => r.user_id === id).map((r) => r.role);
+  const roleText = (u) => [u.role, ...rolesOf(u.id)].map((r) => t('r_' + r)).join(' + ');
   ROLES = assignable;
   const live = grants.filter((g) => g.is_active);
 
@@ -64,7 +69,7 @@ export async function render({ el, setTitle, query, rerender }) {
     $('#pane', el).innerHTML = tab === 'staff' ? staffPane(filtered()) : tab === 'access' ? accessPane(grants, live) : invitePane(invites);
     if (tab === 'staff') wireFilters();
   };
-  const filtered = () => rows.filter((u) => !u.deleted_at && (!roleFilter || u.role === roleFilter)
+  const filtered = () => rows.filter((u) => !u.deleted_at && (!roleFilter || u.role === roleFilter || rolesOf(u.id).includes(roleFilter))
     && (!nameFilter || `${u.full_name} ${u.email} ${u.phone || ''}`.toLowerCase().includes(nameFilter)));
   const presentRoles = [...new Set([...ROLES.filter((r) => r !== 'admin'), ...rows.map((r) => r.role)])];
   const wireFilters = () => {
@@ -125,7 +130,7 @@ export async function render({ el, setTitle, query, rerender }) {
       const mine = live.filter((g) => g.user_id === u.id);
       return `<tr class="${admin ? 'click' : ''}" data-id="${u.id}">
         <td><b>${esc(u.full_name || '—')}</b><div class="muted small">${esc(u.email)}</div></td>
-        <td>${esc(t('r_' + u.role))}${RETIRED.includes(u.role) ? ` <span class="badge s-pending_deposit" title="${esc(t('role_retired_hint'))}">${esc(t('role_retired'))}</span>` : ''}</td>
+        <td>${esc(roleText(u))}${RETIRED.includes(u.role) ? ` <span class="badge s-pending_deposit" title="${esc(t('role_retired_hint'))}">${esc(t('role_retired'))}</span>` : ''}</td>
         <td>${esc(u.branch_code || '—')}</td>
         <td>${u.active ? `<span class="badge s-ready">${esc(t('active'))}</span>` : `<span class="badge s-cancelled">${esc(t('inactive'))}</span>`}</td>
         <td class="hide-m small">${mine.length ? mine.map((g) => `<span class="badge s-booked">${esc(t('p_' + g.permission.replace('.', '_')))}</span>`).join(' ') : '<span class="muted">—</span>'}</td>
@@ -133,7 +138,7 @@ export async function render({ el, setTitle, query, rerender }) {
     }).join('')}</tbody></table></div>
     <div class="list-cards">${list.map((u) => `<div class="lc ${admin ? 'click' : ''}" data-id="${u.id}"><div class="top"><b>${esc(u.full_name || u.email)}</b>
       ${u.active ? `<span class="badge s-ready">${esc(t('active'))}</span>` : `<span class="badge s-cancelled">${esc(t('inactive'))}</span>`}</div>
-      <div class="sub">${esc(t('r_' + u.role))}${RETIRED.includes(u.role) ? ` · ${esc(t('role_retired'))}` : ''}${u.branch_code ? ' · ' + esc(u.branch_code) : ''}</div>
+      <div class="sub">${esc(roleText(u))}${RETIRED.includes(u.role) ? ` · ${esc(t('role_retired'))}` : ''}${u.branch_code ? ' · ' + esc(u.branch_code) : ''}</div>
       <div class="sub">${esc(u.email || '')}${u.phone ? ' · ' + esc(u.phone) : ''}</div></div>`).join('') || `<div class="lc muted">${esc(t('nothing_here'))}</div>`}</div></div>`;
 
   // ───────── special access ─────────
@@ -197,7 +202,12 @@ export async function render({ el, setTitle, query, rerender }) {
     }
 
     const tr = e.target.closest('tr[data-id], .lc[data-id]');
-    if (tr && admin) staffModal(rows.find((x) => x.id === tr.dataset.id), live, rerender);
+    if (tr && admin) {
+      const u = rows.find((x) => x.id === tr.dataset.id);
+      if (!u) return;
+      const boxes = mailboxes.filter((b) => b.members.includes(u.id)).map((b) => b.id);
+      staffModal(u, live, rerender, { extra: rolesOf(u.id), mailboxes, boxes });
+    }
   });
 
   paint();
@@ -235,7 +245,7 @@ function inviteModal(after) {
   });
 }
 
-function staffModal(u, live, after) {
+function staffModal(u, live, after, { extra = [], mailboxes = [], boxes = [] } = {}) {
   if (!u) return;
   const self = u.id === state.profile.id;
   const mine = live.filter((g) => g.user_id === u.id);
@@ -250,6 +260,12 @@ function staffModal(u, live, after) {
         ${RETIRED.includes(u.role) ? `<div class="hint">${esc(t('role_retired_hint'))}</div>` : ''}</div>
       <div class="field"><label>${esc(t('branch'))}</label><select class="input" name="branch_code"><option value="">—</option>
         ${state.branches.map((b) => `<option value="${b.code}" ${u.branch_code === b.code ? 'selected' : ''}>${esc(b.code)} · ${esc(b.name)}</option>`).join('')}</select></div>
+      <div class="full" ${u.role === 'admin' ? 'hidden' : ''}><div class="lbl">${esc(mt('Additional roles', 'Roles za ziada'))}</div>
+        <div class="hint">${esc(mt('Tick every other job this person also does. Their permissions add up.', 'Chagua kazi nyingine anazofanya pia. Ruhusa zake zinajumlishwa.'))}</div>
+        ${ROLES.filter((r) => r !== 'admin').map((r) => `<label class="perm-row"><input type="checkbox" data-extra-role value="${r}" ${extra.includes(r) ? 'checked' : ''} ${r === u.role ? 'disabled' : ''}><span>${esc(t('r_' + r))}</span></label>`).join('')}</div>
+      <div class="full" ${u.role === 'admin' ? 'hidden' : ''}><div class="lbl">${esc(mt('Department mailboxes', 'Mailbox za department'))}</div>
+        <div class="hint">${esc(mt('The email accounts this person reads and sends from. Their name is added to every email they send.', 'Email anazosoma na kutuma kutoka. Jina lake linaongezwa kwenye kila email anayotuma.'))}</div>
+        ${mailboxes.map((b) => `<label class="perm-row"><input type="checkbox" data-mailbox value="${b.id}" ${boxes.includes(b.id) ? 'checked' : ''}><span>${esc(b.name)} <span class="muted small mono">${esc(b.email)}</span></span></label>`).join('') || `<div class="muted small">${esc(t('nothing_here'))}</div>`}</div>
       <label class="row small full"><input type="checkbox" name="active" ${u.active ? 'checked' : ''} ${self ? 'disabled' : ''}> ${esc(t('active'))}</label>
       ${self ? `<div class="hint full">${esc(t('cannot_change_self'))}</div>` : ''}
       ${self ? `<div class="hint full">${esc(mt('To hand over administration, give another active staff member the Admin role, then sign in with their account to delete this one.', 'Ili kukabidhi usimamizi, mpe mfanyakazi mwingine aliye active role ya Admin, kisha ingia kwa akaunti yake kufuta hii.'))}</div>` : ''}
@@ -272,7 +288,16 @@ function staffModal(u, live, after) {
         const d = formData(m.el.querySelector('#uf'));
         const p = { id: u.id, full_name: d.full_name, phone: d.phone, branch_code: d.branch_code || null };
         if (!self) { p.role = d.role; p.active = !!d.active; }
-        try { await rpc('admin_save_staff', { p }); m.close(); toast(t('saved')); after(); }
+        const roles = [...m.el.querySelectorAll('[data-extra-role]:checked')].map((x) => x.value).filter((r) => r !== (p.role || u.role));
+        const chosenBoxes = [...m.el.querySelectorAll('[data-mailbox]:checked')].map((x) => x.value);
+        try {
+          await rpc('admin_save_staff', { p });
+          if (u.role !== 'admin' && (p.role || u.role) !== 'admin') {
+            await rpc('admin_set_staff_roles', { p_user: u.id, p_roles: roles });
+            if (p.active !== false) await rpc('admin_set_staff_mailboxes', { p_user: u.id, p_mailboxes: chosenBoxes });
+          }
+          m.close(); toast(t('saved')); after();
+        }
         catch (err) { toast(errText(err), 'err'); }
       });
     },

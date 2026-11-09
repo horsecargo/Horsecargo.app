@@ -19,7 +19,10 @@ import {
   mailboxStatus,
   resetMailbox,
   enableMailNotifications,
+  currentMailbox,
+  setCurrentMailbox,
 } from "../mailclient.js";
+import { activeStaff } from "../staff.js";
 import { refreshMailBadge } from "../mailbadge.js";
 
 const folders = () => [
@@ -55,61 +58,100 @@ async function settings(after) {
     toast(e.message, "err");
     return;
   }
+  if (!s.admin) {
+    modal({
+      title: mt("Mailbox settings", "Mipangilio ya email"),
+      body: `<p class="muted">${esc(mt("Department mailboxes are connected and assigned by the CEO. Every email you send carries your name and department in the signature.", "Mailbox za department zinaunganishwa na kugawiwa na CEO. Kila email unayotuma ina jina lako na department yako kwenye signature."))}</p>
+      ${s.mailboxes.length ? s.mailboxes.map((b) => `<div class="row" style="padding:8px 0"><b class="grow">${esc(b.name)}</b><span class="muted small">${esc(b.email)}</span></div>`).join("") : `<div class="callout warn">${esc(mt("You have not been assigned a mailbox yet.", "Bado hujapewa mailbox."))}</div>`}`,
+      foot: `<button class="btn" data-close>${esc(t("cancel"))}</button>`,
+    });
+    return;
+  }
+  let boxes;
+  let staff;
+  try {
+    [boxes, staff] = await Promise.all([rpc("admin_mailboxes"), activeStaff()]);
+  } catch (e) {
+    toast(errText(e), "err");
+    return;
+  }
+  const row = (b) => `<fieldset class="perm-group" data-box="${b.id}"><legend>${esc(b.name)} · <span class="mono small">${esc(b.email)}</span>
+      ${b.connected ? `<span class="badge s-ready">${esc(mt("Connected", "Imeunganishwa"))}</span>` : `<span class="badge s-pending_deposit">${esc(mt("Not connected", "Haijaunganishwa"))}</span>`}</legend>
+    <div class="row" style="gap:8px;flex-wrap:wrap"><input class="input grow" type="password" data-box-password autocomplete="new-password" maxlength="1024" placeholder="${esc(mt("Mailbox password from cPanel", "Password ya mailbox kutoka cPanel"))}" aria-label="${esc(mt("Mailbox password", "Password ya email"))} ${esc(b.email)}">
+      <button class="btn primary" data-box-connect ${s.configured ? "" : "disabled"}>${esc(b.connected ? mt("Update password", "Badili password") : mt("Connect", "Unganisha"))}</button>
+      ${b.connected ? `<button class="btn danger" data-box-disconnect>${esc(mt("Disconnect", "Ondoa"))}</button>` : ""}</div>
+    <div class="lbl" style="margin-top:10px">${esc(mt("Staff who use this mailbox", "Staff wanaotumia mailbox hii"))}</div>
+    ${staff.filter((u) => u.role !== "admin").map((u) => `<label class="perm-row"><input type="checkbox" data-box-member value="${u.id}" ${b.members.includes(u.id) ? "checked" : ""}><span>${esc(u.full_name || u.email)}</span></label>`).join("") || `<div class="muted small">${esc(t("nothing_here"))}</div>`}
+  </fieldset>`;
   modal({
-    title: mt("Mailbox settings", "Mipangilio ya email"),
-    body: `
-    <p class="muted">${esc(mt("Connect the cPanel email account already created for you. Use its mailbox password, which may differ from your app password.", "Unganisha akaunti yako ya email iliyotengenezwa kwenye cPanel. Tumia password ya mailbox; inaweza kutofautiana na password ya app."))}</p>
+    title: mt("Department mailboxes", "Mailbox za department"),
+    wide: true,
+    body: `<p class="muted">${esc(mt("Connect each department mailbox once with its cPanel password, then tick the staff who use it. Administrators can open every mailbox. Passwords are encrypted on the server and never shown to staff.", "Unganisha kila mailbox ya department mara moja kwa password yake ya cPanel, kisha chagua staff wanaoitumia. Admin anaweza kufungua mailbox zote. Passwords zinahifadhiwa kwa encryption kwenye server; staff hawazioni."))}</p>
     ${!s.configured ? `<div class="callout warn">${esc(mt("Server setup is required before a mailbox can connect.", "Mipangilio ya server inahitajika kabla ya kuunganisha mailbox."))}</div>` : ""}
-    <form id="mail-connect" class="form">
-      <div class="field full"><label for="mail-address">${esc(t("email"))}</label><input class="input" id="mail-address" type="email" required autocomplete="username" value="${esc(s.email || state.profile.email)}" ${s.connected ? "readonly" : ""}></div>
-      <div class="field full"><label for="mail-password">${esc(mt("Mailbox password", "Password ya email"))}</label><input class="input" id="mail-password" type="password" required autocomplete="current-password" maxlength="1024"></div>
-      <p class="hint full">${esc(mt("Passwords are encrypted on the server and are never stored in this browser.", "Passwords zinahifadhiwa kwa encryption kwenye server; hazihifadhiwi kwenye browser hii."))}</p>
-    </form>`,
-    foot: `${s.connected ? `<button class="btn danger" id="mail-disconnect">${esc(mt("Disconnect", "Ondoa muunganiko"))}</button>` : ""}<button class="btn primary" id="mail-connect-save" ${s.configured ? "" : "disabled"}>${esc(s.connected ? mt("Update password", "Badili password") : mt("Connect mailbox", "Unganisha email"))}</button>`,
+    <div class="perm-grid">${boxes.map(row).join("")}</div>`,
+    foot: `<button class="btn" data-close>${esc(t("cancel"))}</button>`,
     onMount(m) {
-      $("#mail-connect", m.el).onsubmit = (e) => {
-        e.preventDefault();
-        $("#mail-connect-save", m.el).click();
-      };
-      $("#mail-connect-save", m.el).onclick = (ev) =>
-        busy(ev.currentTarget, async () => {
-          const f = $("#mail-connect", m.el);
-          if (!f.reportValidity()) return;
-          try {
-            await mailApi("connect", {
-              email: $("#mail-address", m.el).value.trim(),
-              password: $("#mail-password", m.el).value,
-            });
-            $("#mail-password", m.el).value = "";
-            resetMailbox();
-            m.close();
-            after();
-          } catch (e) {
-            toast(e.message, "err");
-          }
-        });
-      const disconnect = $("#mail-disconnect", m.el);
-      if (disconnect)
-        disconnect.onclick = (ev) =>
-          busy(ev.currentTarget, async () => {
+      m.el.addEventListener("click", (e) => {
+        const box = e.target.closest("[data-box]");
+        if (!box) return;
+        const id = box.dataset.box;
+        const connect = e.target.closest("[data-box-connect]");
+        if (connect)
+          busy(connect, async () => {
+            const pw = $("[data-box-password]", box);
+            if (!pw.value) {
+              pw.focus();
+              return;
+            }
+            try {
+              await mailApi("mailbox-connect", { mailbox: id, password: pw.value });
+              pw.value = "";
+              resetMailbox();
+              toast(mt("Mailbox connected.", "Mailbox imeunganishwa."));
+              m.close();
+              after();
+            } catch (err) {
+              toast(err.message, "err");
+            }
+          });
+        const disconnect = e.target.closest("[data-box-disconnect]");
+        if (disconnect)
+          busy(disconnect, async () => {
             if (
               !(await confirmDialog(
                 mt(
                   "Disconnect this mailbox from the app? Email on cPanel will be retained.",
-                  "Ondoa muunganiko wa email kwenye app? Email zilizoko cPanel zitabaki.",
+                  "Ondoa muunganiko wa mailbox hii kwenye app? Email zilizoko cPanel zitabaki.",
                 ),
               ))
             )
               return;
             try {
-              await mailApi("disconnect");
+              await mailApi("mailbox-disconnect", { mailbox: id });
               resetMailbox();
               m.close();
               after();
-            } catch (e) {
-              toast(e.message, "err");
+            } catch (err) {
+              toast(err.message, "err");
             }
           });
+      });
+      m.el.addEventListener("change", async (e) => {
+        const cb = e.target.closest("[data-box-member]");
+        if (!cb) return;
+        const box = cb.closest("[data-box]");
+        const users = [...box.querySelectorAll("[data-box-member]:checked")].map((x) => x.value);
+        cb.disabled = true;
+        try {
+          await rpc("admin_set_mailbox_members", { p_mailbox: box.dataset.box, p_users: users });
+          toast(t("saved"));
+        } catch (err) {
+          cb.checked = !cb.checked;
+          toast(errText(err), "err");
+        } finally {
+          cb.disabled = false;
+        }
+      });
     },
   });
 }
@@ -129,6 +171,7 @@ async function compose(after, seed = {}, draftId = null) {
     wide: true,
     body: `
     <form class="form gm-compose" id="mail-compose">
+      ${currentMailbox() ? `<p class="hint full">${esc(mt("From", "Kutoka"))}: <b>${esc(state.profile.full_name || state.profile.email)} – ${esc(currentMailbox().name)}</b> &lt;${esc(currentMailbox().email)}&gt; · ${esc(mt("your signature is added automatically", "signature yako inaongezwa yenyewe"))}</p>` : ""}
       <datalist id="mail-directory">${directory.map((p) => `<option value="${esc(p.email)}">${esc(p.name)}</option>`).join("")}</datalist>
       ${[
         ["to", t("mail_to")],
@@ -373,19 +416,34 @@ async function mailbox({ el, setTitle, query }) {
     try {
       const s = await mailboxStatus();
       if (disposed || seq !== generation) return;
-      $("#mail-account", el).textContent = s.connected
-        ? s.email
-        : mt(
-            "Connect your company mailbox to start sending and receiving.",
-            "Unganisha email yako ya kampuni ili utume na kupokea.",
-          );
+      const account = $("#mail-account", el);
+      account.innerHTML =
+        s.mailboxes.length > 1
+          ? `<select class="input" id="mail-box" aria-label="${esc(mt("Mailbox", "Mailbox"))}">${s.mailboxes.map((b) => `<option value="${b.id}" ${b.id === s.current?.id ? "selected" : ""} ${b.connected ? "" : "disabled"}>${esc(b.name)} · ${esc(b.email)}${b.connected ? "" : " · " + esc(mt("not connected", "haijaunganishwa"))}</option>`).join("")}</select>`
+          : esc(s.current ? `${s.current.name} · ${s.current.email}` : "");
+      const pickBox = $("#mail-box", account);
+      if (pickBox)
+        pickBox.onchange = () => {
+          setCurrentMailbox(pickBox.value);
+          offset = 0;
+          selected = new Set();
+          load();
+          refreshMailBadge({ force: true });
+        };
       if (!s.connected) {
-        content.innerHTML = `<div class="gm-welcome">${icon("mail")}<h2>${esc(mt("Your company email, in one place", "Email yako ya kampuni, sehemu moja"))}</h2><p>${esc(mt("Use your existing cPanel mailbox to email staff and customers.", "Tumia mailbox yako ya cPanel kuwasiliana na staff na wateja."))}</p><button class="btn primary" id="mail-start">${esc(mt("Connect mailbox", "Unganisha email"))}</button></div>`;
-        $("#mail-start", el).onclick = () =>
-          settings(() => {
-            resetMailbox();
-            load();
-          });
+        const hint = s.admin
+          ? mt("Connect the department mailboxes and choose who uses each one.", "Unganisha mailbox za department na uchague nani anatumia kila moja.")
+          : s.mailboxes.length
+            ? mt("Your department mailbox is not connected yet. Ask the CEO to connect it.", "Mailbox ya department yako bado haijaunganishwa. Mwombe CEO aiunganishe.")
+            : mt("You have not been assigned a department mailbox yet. Ask the CEO.", "Bado hujapewa mailbox ya department. Mwombe CEO.");
+        content.innerHTML = `<div class="gm-welcome">${icon("mail")}<h2>${esc(mt("Department email, in one place", "Email za department, sehemu moja"))}</h2><p>${esc(hint)}</p>${s.admin ? `<button class="btn primary" id="mail-start">${esc(mt("Department mailboxes", "Mailbox za department"))}</button>` : ""}</div>`;
+        const start = $("#mail-start", el);
+        if (start)
+          start.onclick = () =>
+            settings(() => {
+              resetMailbox();
+              load();
+            });
         syncNote();
         return;
       }
@@ -481,7 +539,7 @@ async function mailbox({ el, setTitle, query }) {
         $("#message-restore", el).onclick = () =>
           mutate("inbox", [id]).catch((e) => toast(e.message, "err"));
       const reply = (all) => {
-        const me = ((s) => s.toLowerCase())($("#mail-account", el).textContent);
+        const me = (currentMailbox()?.email || "").toLowerCase();
         const targets = [
           ...new Set(
             [...(m.replyTo || m.from), ...(all ? m.to : [])]

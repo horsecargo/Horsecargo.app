@@ -13,13 +13,18 @@ process.env.MAIL_VAPID_PUBLIC_KEY = keys.publicKey;
 process.env.MAIL_VAPID_PRIVATE_KEY = keys.privateKey;
 process.env.MAIL_VAPID_SUBJECT = "mailto:admin@hc.test";
 const id = "00000000-0000-0000-0000-000000000001";
+const member = "00000000-0000-0000-0000-000000000002";
+const boxId = "00000000-0000-0000-0000-0000000000b1";
+// v10: the scheduled check runs per department mailbox and notifies its members.
 const account = {
-  user_id: id,
-  email: "admin@hc.test",
-  password_cipher: encrypt("fixture", id),
+  id: boxId,
+  email: "sales@hc.test",
+  name: "Sales",
+  password_cipher: encrypt("fixture", boxId),
   last_uid: 30,
   uid_validity: "5",
 };
+let subsQuery = "";
 let allowed = true,
   claim = true,
   newUid = 31,
@@ -42,23 +47,28 @@ const response = (data) =>
 globalThis.fetch = async (url, init) => {
   const u = new URL(url);
   const body = init.body ? JSON.parse(init.body) : null;
-  if (u.pathname === "/rest/v1/mail_accounts") {
+  if (u.pathname === "/rest/v1/mail_mailboxes") {
     if (init.method === "PATCH") {
       Object.assign(account, body);
       return response(null);
     }
     return response([{ ...account }]);
   }
-  if (u.pathname.endsWith("/mail_claim_poll")) return response(claim);
-  if (u.pathname.endsWith("/mail_user_allowed")) return response(allowed);
+  if (u.pathname.endsWith("/mail_claim_mailbox")) return response(claim);
+  if (u.pathname.endsWith("/mail_can_use_mailbox")) return response(allowed);
+  if (u.pathname === "/rest/v1/mail_mailbox_members")
+    return response([{ user_id: member }]);
+  if (u.pathname === "/rest/v1/profiles") return response([{ id }]);
   if (u.pathname === "/rest/v1/mail_push_subscriptions") {
     if (init.method === "DELETE") {
       drop.push(u.search);
       return response(null);
     }
+    subsQuery = decodeURIComponent(u.search);
     return response([
       {
         id: "fixture-sub",
+        user_id: member,
         subscription: { endpoint: "https://fcm.googleapis.com/fixture" },
       },
     ]);
@@ -104,6 +114,14 @@ try {
     "new UID sends push and advances cursor",
   );
   ok(
+    subsQuery.includes(member) && subsQuery.includes(id),
+    "department members and administrators are notified",
+  );
+  ok(
+    sent[0].userId === member && sent[0].title.includes("Sales"),
+    "push names the department and is addressed to the subscriber",
+  );
+  ok(
     !JSON.stringify(sent[0]).includes("private-customer") &&
       !JSON.stringify(sent[0]).includes("Private customer"),
     "push payload excludes customer contents",
@@ -143,7 +161,7 @@ try {
   await pollMail();
   ok(
     connections === n && account.last_uid === 33,
-    "revoked mail permission prevents background mailbox access",
+    "nobody allowed on a mailbox prevents background mailbox access",
   );
   allowed = true;
   claim = false;

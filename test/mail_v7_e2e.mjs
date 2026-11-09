@@ -50,10 +50,14 @@ await page.route("**/.netlify/functions/mail", async (route) => {
   let result;
   switch (p.action) {
     case "status":
+      // v10: department mailboxes the signed-in staff member may use.
       result = {
-        connected,
+        mailboxes: [
+          { id: "box-sales", email: "admin@hc.test", name: "Sales", connected },
+          { id: "box-acct", email: "accounting@hc.test", name: "Accounting", connected },
+        ],
+        admin: true,
         configured: true,
-        email: connected ? "admin@hc.test" : "",
         vapidPublicKey: "",
       };
       break;
@@ -122,9 +126,9 @@ await page.route("**/.netlify/functions/mail", async (route) => {
       );
       result = { ok: true };
       break;
-    case "connect":
+    case "mailbox-connect":
       connected = true;
-      result = { connected: true, email: p.email };
+      result = { connected: true };
       break;
     case "delete-user":
       deletion = p;
@@ -185,6 +189,11 @@ try {
   });
   await page.locator("#message-reply-all").click();
   ok(
+    (await page.locator("#mail-compose").textContent()).includes("Sales") &&
+      (await page.locator("#mail-compose").textContent()).includes("admin@hc.test"),
+    "compose shows the sender name and department mailbox",
+  );
+  ok(
     (await page.locator("#email-to").inputValue()) === "care@hc.test",
     "reply-all excludes own mailbox",
   );
@@ -197,6 +206,10 @@ try {
   await page.locator("#email-text").fill("Fixture reply");
   await page.locator("#email-send").click();
   await page.locator("#mail-compose").waitFor({ state: "detached" });
+  ok(
+    sentPayload.mailbox === "box-sales",
+    "send goes through the chosen department mailbox",
+  );
   ok(
     sentPayload.to === "care@hc.test" && sentPayload.inReplyTo,
     "reply carries authenticated send request and Message-ID: " + JSON.stringify(sentPayload),
@@ -252,6 +265,16 @@ try {
       drafts.length === 0,
     "send includes attachment and removes sent draft",
   );
+  await page.locator("#mail-box").selectOption("box-acct");
+  await page.locator(".gm-row").first().waitFor();
+  await page.locator("#compose").click();
+  ok(
+    (await page.locator("#mail-compose").textContent()).includes("accounting@hc.test"),
+    "switching mailbox changes the From address",
+  );
+  await page.locator(".modal [data-close]").first().click().catch(() => {});
+  await page.locator("#mail-compose").waitFor({ state: "detached" }).catch(() => {});
+  await page.locator("#mail-box").selectOption("box-sales");
   await page.locator('[data-folder="inbox"]').click();
   await page.locator(".gm-row").first().waitFor();
   latestUid = 32;

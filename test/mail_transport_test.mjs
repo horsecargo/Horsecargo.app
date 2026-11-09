@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";
 import { ImapFlow } from "imapflow";
 import nodemailer from "nodemailer";
+import { simpleParser } from "mailparser";
 import {
   encrypt,
   decrypt,
@@ -22,10 +23,13 @@ process.env.MAIL_SMTP_HOST = "fixture.invalid";
 process.env.MAIL_ALLOWED_DOMAINS = "hc.test";
 const id = "00000000-0000-0000-0000-000000000001";
 const other = "00000000-0000-0000-0000-000000000002";
+const boxId = "00000000-0000-0000-0000-0000000000b1";
+// v10: a shared department mailbox; the ciphertext is bound to the mailbox ID.
 const a = {
-  user_id: id,
-  email: "admin@hc.test",
-  password_cipher: encrypt("fixture-password", id),
+  id: boxId,
+  email: "sales@hc.test",
+  name: "Sales",
+  password_cipher: encrypt("fixture-password", boxId),
 };
 let checks = 0;
 const ok = (condition, label) => {
@@ -35,14 +39,14 @@ const ok = (condition, label) => {
 };
 ok(
   !a.password_cipher.includes("fixture-password") &&
-    decrypt(a.password_cipher, id) === "fixture-password",
+    decrypt(a.password_cipher, boxId) === "fixture-password",
   "AES-GCM encrypted password roundtrip",
 );
 assert.throws(() => decrypt(a.password_cipher, other));
 checks++;
 const tampered = a.password_cipher.split(".");
 tampered[1] = Buffer.from("bad").toString("base64");
-assert.throws(() => decrypt(tampered.join("."), id));
+assert.throws(() => decrypt(tampered.join("."), boxId));
 checks++;
 for (const addresses of [
   "bad",
@@ -83,7 +87,7 @@ checks++;
 const deliveries = new Map();
 let profile = {
   id,
-  email: a.email,
+  email: "admin@hc.test",
   active: true,
   role: "admin",
   full_name: "Fixture Admin",
@@ -98,6 +102,9 @@ let raw = "";
 let action = "";
 let storedDraft;
 let savedAccount;
+let canUse = true;
+let members = [];
+let boxRow = a;
 const response = (body, status = 200) =>
   new Response(JSON.stringify(body), {
     status,
@@ -121,9 +128,11 @@ globalThis.fetch = async (url, init) => {
       authFail ? 503 : 200,
     );
   }
-  if (u.pathname === "/rest/v1/mail_accounts") {
-    if (init.method === "POST") savedAccount = body;
-    return response([a]);
+  if (u.pathname === "/rest/v1/rpc/mail_can_use_mailbox") return response(canUse);
+  if (u.pathname === "/rest/v1/mail_mailbox_members") return response(members);
+  if (u.pathname === "/rest/v1/mail_mailboxes") {
+    if (init.method === "PATCH") savedAccount = body;
+    return response([boxRow]);
   }
   if (u.pathname === "/rest/v1/mail_drafts") {
     storedDraft = { url: u.toString(), body };
@@ -236,6 +245,23 @@ try {
     !raw.includes("Bcc:") && !raw.includes("hidden@hc.test"),
     "BCC hidden from raw message/Sent copy",
   );
+  const parsed = await simpleParser(raw);
+  ok(
+    parsed.from.value[0].name === "Fixture Admin – Sales" &&
+      parsed.from.value[0].address === "sales@hc.test",
+    "From shows the sending staff member and the department mailbox",
+  );
+  ok(
+    parsed.text.trimEnd().endsWith(
+      "--\nFixture Admin\nSales\nHorse Cargo Ltd | +971 50 608 3531 | horsecargoltd.com",
+    ),
+    "signature names the staff member who sent the department email",
+  );
+  const record = [...deliveries.values()][0];
+  ok(
+    record.user_id === id && record.mailbox_id === boxId,
+    "delivery audit records the sender and the department mailbox",
+  );
   const requestId = crypto.randomUUID();
   await sendMail(a, profile, { ...good, requestId });
   await sendMail(a, profile, { ...good, requestId });
@@ -295,6 +321,28 @@ try {
   ok(r.statusCode === 403, "mail permission revoked on server");
   allow = true;
   profile.role = "hr";
+  canUse = false;
+  r = await handler(event({ action: "list", mailbox: boxId }));
+  ok(r.statusCode === 403, "staff outside a department cannot open its mailbox");
+  r = await handler(event({ action: "list" }));
+  ok(r.statusCode === 400, "mailbox actions require a chosen mailbox");
+  canUse = true;
+  members = [{ mailbox_id: boxId }];
+  r = await handler(event({ action: "status" }));
+  ok(
+    r.statusCode === 200 &&
+      JSON.parse(r.body).mailboxes.length === 1 &&
+      !r.body.includes("password") &&
+      !JSON.parse(r.body).admin,
+    "staff see only their assigned mailboxes and never a password",
+  );
+  members = [];
+  r = await handler(event({ action: "status" }));
+  ok(JSON.parse(r.body).mailboxes.length === 0, "unassigned staff see no mailbox");
+  r = await handler(
+    event({ action: "mailbox-connect", mailbox: boxId, password: "x" }),
+  );
+  ok(r.statusCode === 403, "only the administrator connects department mailboxes");
   r = await handler(event({ action: "delete-user", userId: other }));
   ok(
     r.statusCode === 403 && authDeletes === 0,
@@ -331,23 +379,26 @@ try {
     }),
   );
   ok(r.statusCode === 400, "push endpoint SSRF refused");
+  boxRow = { ...a, email: "user@external.test" };
   r = await handler(
-    event({
-      action: "connect",
-      email: "user@external.test",
-      password: "fixture",
-    }),
+    event({ action: "mailbox-connect", mailbox: boxId, password: "fixture" }),
   );
+  boxRow = a;
   ok(
     r.statusCode === 400,
     "mailbox connection restricted to configured company domains",
   );
   r = await handler(
-    event({ action: "connect", email: a.email, password: "fixture-password" }),
+    event({
+      action: "mailbox-connect",
+      mailbox: boxId,
+      password: "fixture-password",
+    }),
   );
   ok(
     r.statusCode === 200 &&
       savedAccount.last_uid === 9 &&
+      decrypt(savedAccount.password_cipher, boxId) === "fixture-password" &&
       savedAccount.uid_validity === "5" &&
       !JSON.stringify(savedAccount).includes("fixture-password"),
     "connect verifies both transports, encrypts password and establishes new-mail baseline",
