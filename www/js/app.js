@@ -1,5 +1,5 @@
 import { t, getLang, setLang } from './i18n.js';
-import { sb, configured, state, loadSession, loadReference, errText, can, canAny } from './api.js';
+import { sb, configured, state, authLink, loadSession, loadReference, errText, can, canAny } from './api.js';
 import { refreshMailBadge, mailBadge, clearMailBadge } from './mailbadge.js';
 import { identifyMailUser, stopMailNotifications, resetMailbox } from './mailclient.js';
 import { icon, esc, toast, $ } from './ui.js';
@@ -209,7 +209,7 @@ function loginScene() {
   </div>`;
 }
 
-function renderLogin(mode = 'login') {
+function loginPage(title, form) {
   $('#app').innerHTML = `
   <div class="login">
     ${loginScene()}
@@ -218,39 +218,73 @@ function renderLogin(mode = 'login') {
       <div class="login-logo"><img src="img/logo-white.png" alt="Horse Cargo"></div>
       <p class="login-tagline">${esc(t('auth_tagline'))}</p>
       <div class="login-card">
-        <h1>${esc(mode === 'login' ? t('sign_in') : t('request_access'))}</h1>
-        <form id="auth-form" class="stack" style="gap:12px" novalidate>
-          ${mode === 'signup' ? `<div class="field"><label class="req">${esc(t('full_name'))}</label><input class="input" name="full_name" required autocomplete="name"></div>` : ''}
-          <div class="field"><label class="req">${esc(t('email'))}</label><input class="input" name="email" type="email" required autocomplete="email" inputmode="email"></div>
-          <div class="field"><label class="req">${esc(t('password'))}</label><input class="input" name="password" type="password" required minlength="8" autocomplete="${mode === 'login' ? 'current-password' : 'new-password'}"></div>
-          <button class="btn primary" style="width:100%;min-height:46px" type="submit">${esc(mode === 'login' ? t('sign_in') : t('request_access'))}</button>
-          <div id="auth-msg"></div>
-          <a href="#" id="auth-switch" class="small" style="text-align:center">${esc(mode === 'login' ? t('no_account') : t('have_account'))}</a>
-        </form>
+        <h1>${esc(title)}</h1>
+        <form id="auth-form" class="stack" style="gap:12px" novalidate>${form}<div id="auth-msg"></div></form>
       </div>
       <div class="login-lanes"><span>DXB → DAR</span><span>DXB → MWZ</span><span>DAR → DXB</span><span>${esc(t('sea'))} · ${esc(t('air'))}</span></div>
     </main>
   </div>`;
-  $('#auth-switch').onclick = (e) => { e.preventDefault(); renderLogin(mode === 'login' ? 'signup' : 'login'); };
+}
+const authMsg = (kind, text) => { $('#auth-msg').innerHTML = `<div class="callout ${kind}">${icon(kind === 'ok' ? 'check' : 'alert')}<div>${esc(text)}</div></div>`; };
+const submitBtn = (label) => `<button class="btn primary" style="width:100%;min-height:46px" type="submit">${esc(label)}</button>`;
+
+// Staff never sign themselves up: the administrator invites them by email.
+function renderLogin(mode = 'login', notice = '') {
+  const forgot = mode === 'forgot';
+  loginPage(forgot ? t('forgot_password') : t('sign_in'), `
+    ${forgot ? `<p class="muted small" style="margin:0">${esc(t('forgot_help'))}</p>` : ''}
+    <div class="field"><label class="req">${esc(t('email'))}</label><input class="input" name="email" type="email" required autocomplete="email" inputmode="email"></div>
+    ${forgot ? '' : `<div class="field"><label class="req">${esc(t('password'))}</label><input class="input" name="password" type="password" required autocomplete="current-password"></div>`}
+    ${submitBtn(forgot ? t('send_reset_link') : t('sign_in'))}
+    <a href="#" id="auth-switch" class="small" style="text-align:center">${esc(forgot ? t('back_to_sign_in') : t('forgot_password_q'))}</a>`);
+  if (notice) { authMsg('danger', notice); history.replaceState(null, '', location.pathname + location.search); }
+  $('#auth-switch').onclick = (e) => { e.preventDefault(); renderLogin(forgot ? 'login' : 'forgot'); };
   $('#auth-form').onsubmit = async (e) => {
     e.preventDefault();
     const f = e.target; const btn = f.querySelector('button[type=submit]');
-    const email = f.email.value.trim(); const password = f.password.value;
-    if (!email || !password) { toast(t('required_fields'), 'err'); return; }
+    const email = f.email.value.trim();
+    if (!email || (!forgot && !f.password.value)) { toast(t('required_fields'), 'err'); return; }
     btn.disabled = true;
     try {
-      if (mode === 'login') {
-        const { error } = await sb.auth.signInWithPassword({ email, password });
+      if (forgot) {
+        const { error } = await sb.auth.resetPasswordForEmail(email, { redirectTo: location.origin + '/' });
+        if (error) throw error;
+        authMsg('ok', t('reset_link_sent'));
+      } else {
+        const { error } = await sb.auth.signInWithPassword({ email, password: f.password.value });
         if (error) throw error;
         await boot();
-      } else {
-        const { error } = await sb.auth.signUp({ email, password, options: { data: { full_name: f.full_name.value.trim() } } });
-        if (error) throw error;
-        $('#auth-msg').innerHTML = `<div class="callout ok">${icon('check')}<div>${esc(t('access_requested'))}</div></div>`;
-        await sb.auth.signOut();
       }
     } catch (err) {
-      $('#auth-msg').innerHTML = `<div class="callout danger">${icon('alert')}<div>${esc(errText(err))}</div></div>`;
+      authMsg('danger', errText(err));
+    } finally { btn.disabled = false; }
+  };
+}
+
+// Reached from an invite or reset link: the link already proved the email.
+function renderSetPassword() {
+  loginPage(t('set_password_title'), `
+    <p class="muted small" style="margin:0">${esc(t('set_password_help'))}</p>
+    <div class="muted small"><b>${esc(state.user?.email || '')}</b></div>
+    <div class="field"><label class="req">${esc(t('new_password'))}</label><input class="input" name="password" type="password" required minlength="8" autocomplete="new-password"></div>
+    <div class="field"><label class="req">${esc(t('confirm_password'))}</label><input class="input" name="confirm" type="password" required minlength="8" autocomplete="new-password"></div>
+    ${submitBtn(t('save_password'))}`);
+  $('#auth-form').onsubmit = async (e) => {
+    e.preventDefault();
+    const f = e.target; const btn = f.querySelector('button[type=submit]');
+    const password = f.password.value;
+    if (password.length < 8) { authMsg('danger', t('password_too_short')); return; }
+    if (password !== f.confirm.value) { authMsg('danger', t('passwords_mismatch')); return; }
+    btn.disabled = true;
+    try {
+      const { error } = await sb.auth.updateUser({ password });
+      if (error) throw error;
+      authLink.type = null;
+      history.replaceState(null, '', location.pathname + location.search);
+      toast(t('password_saved'));
+      await boot();
+    } catch (err) {
+      authMsg('danger', errText(err));
     } finally { btn.disabled = false; }
   };
 }
@@ -268,7 +302,8 @@ async function boot() {
   if (!configured) return renderSetup();
   try {
     const profile = await loadSession();
-    if (!state.user) return renderLogin();
+    if (!state.user) return renderLogin(authLink.error ? 'forgot' : 'login', authLink.error ? t('link_expired') : '');
+    if (authLink.type === 'invite' || authLink.type === 'recovery') return renderSetPassword();
     if (!profile || !profile.active) return renderInactive();
     await loadReference(true);
     renderShell();

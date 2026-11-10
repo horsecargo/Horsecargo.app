@@ -1,6 +1,10 @@
 import { t, getLang } from './i18n.js';
 
 const cfg = window.HC_CONFIG || {};
+// Invite and password-reset links arrive with the result in the URL hash;
+// read it before the Supabase client consumes and clears it.
+const landing = new URLSearchParams(location.hash.slice(1));
+export const authLink = { type: landing.get('type'), error: landing.get('error_description') };
 export const configured = !!(cfg.SUPABASE_URL && cfg.SUPABASE_ANON_KEY && !cfg.SUPABASE_URL.includes('YOUR-PROJECT'));
 export const sb = configured
   ? window.supabase.createClient(cfg.SUPABASE_URL, cfg.SUPABASE_ANON_KEY, { auth: { persistSession: true, autoRefreshToken: true, storageKey: 'hc.auth' } })
@@ -16,6 +20,9 @@ const SW = {
 export function errText(e) {
   let m = (e && (e.message || e.error_description || e.msg)) || String(e);
   const code = (m.match(/^([A-Z_]+):/) || [])[1];
+  if (m.includes('Email not confirmed')) return getLang() === 'sw' ? 'Akaunti hii haijakamilika. Bonyeza "Umesahau nenosiri?" upate link mpya.' : 'This account is not set up yet. Use "Forgot password?" to get a new link.';
+  if (/rate limit|too many/i.test(m)) return getLang() === 'sw' ? 'Maombi mengi mno kwa muda mfupi. Jaribu tena baada ya saa moja.' : 'Too many requests. Please try again in an hour.';
+  if (m.includes('should be different')) return getLang() === 'sw' ? 'Chagua nenosiri tofauti na la zamani.' : 'Choose a password different from the old one.';
   if (m.includes('Invalid login credentials')) return getLang() === 'sw' ? 'Barua pepe au nenosiri si sahihi.' : 'Wrong email or password.';
   if (m.includes('Failed to fetch') || m.includes('NetworkError')) return getLang() === 'sw' ? 'Hakuna mtandao. Jaribu tena.' : 'No connection. Please try again.';
   if (code === 'NOT_ALLOWED') return getLang() === 'sw' ? SW.NOT_ALLOWED : 'Your role is not allowed to do this.';

@@ -170,7 +170,7 @@ export async function render({ el, setTitle, query, rerender }) {
       <td><b>${esc(i.email)}</b><div class="muted small">${esc(i.full_name || '')}</div></td>
       <td>${esc(t('r_' + i.role))}</td><td>${esc(i.branch_code || '—')}</td>
       <td>${i.accepted_at ? `<span class="badge s-ready">${esc(t('joined'))}</span>` : `<span class="badge s-booked">${esc(t('waiting_signup'))}</span>`}</td>
-      <td class="num">${i.accepted_at ? '' : `<button class="btn small danger" data-cancel="${i.id}">${esc(t('cancel'))}</button>`}</td>
+      <td class="num"><div class="row" style="justify-content:flex-end;gap:6px"><button class="btn small" data-resend="${esc(i.email)}">${esc(t('resend_invite'))}</button>${i.accepted_at ? '' : `<button class="btn small danger" data-cancel="${i.id}">${esc(t('cancel'))}</button>`}</div></td>
     </tr>`).join('')}</tbody></table></div>
     <div class="card-b muted small">${esc(t('invite_help'))}</div></div>` : empty(t('no_invites'), 'users');
 
@@ -190,6 +190,15 @@ export async function render({ el, setTitle, query, rerender }) {
       if (!reason) return;
       try { await rpc('revoke_permission', { p_grant: rv.dataset.revoke, p_reason: reason }); toast(t('access_revoked')); rerender(); }
       catch (err) { toast(errText(err), 'err'); }
+      return;
+    }
+
+    const rs = e.target.closest('[data-resend]');
+    if (rs && admin) {
+      busy(rs, async () => {
+        try { const r = await mailApi('invite-user', { email: rs.dataset.resend }); toast(t(r.kind === 'reset' ? 'reset_sent' : 'invite_sent')); }
+        catch (err) { toast(errText(err), 'err'); }
+      });
       return;
     }
 
@@ -238,8 +247,12 @@ function inviteModal(after) {
         if (!d.email) { toast(t('required_fields'), 'err'); return; }
         try {
           await rpc('admin_invite_staff', { p_email: d.email, p_full_name: d.full_name || null, p_role: d.role, p_branch: d.branch_code || null });
-          m.close(); toast(t('invite_created')); after();
-        } catch (err) { toast(errText(err), 'err'); }
+        } catch (err) { toast(errText(err), 'err'); return; }
+        m.close();
+        // The invitation is saved either way; a failed email can be resent from Pending invites.
+        try { await mailApi('invite-user', { email: d.email }); toast(t('invite_sent')); }
+        catch (err) { toast(`${t('invite_not_sent')}: ${errText(err)}`, 'err'); }
+        after();
       });
     },
   });

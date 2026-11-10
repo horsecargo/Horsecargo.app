@@ -105,6 +105,10 @@ let savedAccount;
 let canUse = true;
 let members = [];
 let boxRow = a;
+let invites = [];
+let accounts = [];
+let authEmails = [];
+let authEmailStatus = 200;
 const response = (body, status = 200) =>
   new Response(JSON.stringify(body), {
     status,
@@ -117,7 +121,18 @@ globalThis.fetch = async (url, init) => {
     return init.headers.Authorization === "Bearer fixture-token"
       ? response({ id })
       : response({ error: "bad" }, 401);
-  if (u.pathname === "/rest/v1/profiles") return response([profile]);
+  if (u.pathname === "/rest/v1/profiles")
+    return response(u.searchParams.has("email") ? accounts : [profile]);
+  if (u.pathname === "/rest/v1/staff_invites") return response(invites);
+  if (u.pathname === "/auth/v1/invite" || u.pathname === "/auth/v1/recover") {
+    authEmails.push({
+      kind: u.pathname.split("/").pop(),
+      redirect: u.searchParams.get("redirect_to"),
+      apikey: init.headers.apikey,
+      body,
+    });
+    return response({}, authEmailStatus);
+  }
   if (u.pathname === "/rest/v1/rpc/has_perm") return response(allow);
   if (u.pathname === "/rest/v1/rpc/admin_prepare_delete_staff")
     return response(null);
@@ -348,7 +363,57 @@ try {
     r.statusCode === 403 && authDeletes === 0,
     "non-admin cannot delete Auth users",
   );
+  invites = [{ full_name: "New Staff" }];
+  r = await handler(event({ action: "invite-user", email: "new@hc.test" }));
+  ok(
+    r.statusCode === 403 && authEmails.length === 0,
+    "only the administrator sends invitation emails",
+  );
   profile.role = "admin";
+  r = await handler(event({ action: "invite-user", email: " New@HC.test " }));
+  ok(
+    r.statusCode === 200 &&
+      JSON.parse(r.body).kind === "invite" &&
+      authEmails[0].kind === "invite" &&
+      authEmails[0].body.email === "new@hc.test" &&
+      authEmails[0].body.data.full_name === "New Staff" &&
+      authEmails[0].redirect === "https://app.horsecargoltd.com" &&
+      authEmails[0].apikey === "fixture-service-only",
+    "a new staff member gets an invite link that returns to the app",
+  );
+  accounts = [{ id: other, active: true, deleted_at: null }];
+  r = await handler(event({ action: "invite-user", email: "new@hc.test" }));
+  ok(
+    r.statusCode === 200 &&
+      JSON.parse(r.body).kind === "reset" &&
+      authEmails[1].kind === "recover" &&
+      !authEmails[1].body.data,
+    "someone who already has an account gets a password link instead",
+  );
+  accounts = [{ id: other, active: false, deleted_at: null }];
+  r = await handler(event({ action: "invite-user", email: "new@hc.test" }));
+  ok(
+    r.statusCode === 409 && authEmails.length === 2,
+    "an inactive account is never sent a sign-in link",
+  );
+  accounts = [];
+  invites = [];
+  r = await handler(event({ action: "invite-user", email: "stranger@example.com" }));
+  ok(
+    r.statusCode === 404 && authEmails.length === 2,
+    "the endpoint cannot email someone who was never added as staff",
+  );
+  r = await handler(event({ action: "invite-user", email: "bad\r\nBcc:x@y.z" }));
+  ok(r.statusCode === 400, "a malformed invitation address is refused");
+  invites = [{ full_name: "" }];
+  authEmailStatus = 429;
+  r = await handler(event({ action: "invite-user", email: "new@hc.test" }));
+  ok(
+    r.statusCode === 429 && /Too many emails/.test(JSON.parse(r.body).error),
+    "the Supabase email limit is explained instead of hidden",
+  );
+  authEmailStatus = 200;
+  invites = [];
   r = await handler(event({ action: "delete-user", userId: id }));
   ok(r.statusCode === 400, "self deletion refused by server endpoint");
   authFail = true;

@@ -23,6 +23,7 @@ http.createServer(async(req,res)=>{
     // receive an unconnected mailbox without reaching external providers.
     if(url.pathname==='/.netlify/functions/mail') {
       if(body.action==='status')return json(res,200,{mailboxes:[],admin:false,configured:true,vapidPublicKey:''});
+      if(body.action==='invite-user')return json(res,200,{sent:true,kind:'invite'});
       return json(res,501,{error:'Mail transport is not implemented by the local database adapter.'});
     }
     if(url.pathname.startsWith('/auth/v1')) {

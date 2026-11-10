@@ -16,6 +16,32 @@ import {
   HttpError,
 } from "./lib/mail-core.mjs";
 
+// Invite and password-reset links send people back here to choose a password.
+const APP_URL = process.env.APP_URL || "https://app.horsecargoltd.com";
+// Supabase Auth sends the email itself; its refusals are explained, not hidden.
+async function authEmail(path, body) {
+  const res = await fetch(
+    `${required("SUPABASE_URL")}/auth/v1/${path}?redirect_to=${encodeURIComponent(APP_URL)}`,
+    {
+      method: "POST",
+      signal: AbortSignal.timeout(20000),
+      headers: {
+        apikey: required("SUPABASE_SERVICE_ROLE_KEY"),
+        Authorization: `Bearer ${required("SUPABASE_SERVICE_ROLE_KEY")}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(body),
+    },
+  ).catch(() => null);
+  if (res?.ok) return;
+  if (!res) fail(503, "The email service did not respond. Try again.");
+  if (res.status === 429)
+    fail(429, "Too many emails were sent recently. Try again in an hour.");
+  if (res.status === 422)
+    fail(409, "This email already has an account. Send a password link instead.");
+  fail(503, "The email could not be sent. Check the Supabase email settings.");
+}
+
 const reply = (statusCode, body) => ({
   statusCode,
   headers: {
@@ -35,7 +61,12 @@ export async function handler(event) {
     } catch {
       fail(400, "Invalid request.");
     }
-    const adminOnly = ["delete-user", "mailbox-connect", "mailbox-disconnect"];
+    const adminOnly = [
+      "delete-user",
+      "invite-user",
+      "mailbox-connect",
+      "mailbox-disconnect",
+    ];
     const p = await authorize(
       event,
       adminOnly.includes(input.action) ? "admin" : "mail.use",
@@ -66,6 +97,30 @@ export async function handler(event) {
         body: { auth_deleted_at: new Date().toISOString() },
       });
       return reply(200, { disabled: true, authDeleted: true });
+    }
+    if (input.action === "invite-user") {
+      // There is no public sign-up: staff open an emailed link and set their
+      // own password. Someone who already has an account gets a reset link.
+      const email = String(input.email || "").trim().toLowerCase();
+      if (email.length > 254 || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email))
+        fail(400, "Enter a valid email address.");
+      const q = encodeURIComponent(email);
+      const [invite] = await db(
+        `/rest/v1/staff_invites?email=eq.${q}&cancelled_at=is.null&select=full_name`,
+      );
+      const [account] = await db(
+        `/rest/v1/profiles?email=eq.${q}&select=id,active,deleted_at`,
+      );
+      if (!invite && !account) fail(404, "Add this person as staff first.");
+      if (account && (!account.active || account.deleted_at))
+        fail(409, "This staff account is inactive.");
+      if (account) await authEmail("recover", { email });
+      else
+        await authEmail("invite", {
+          email,
+          data: { full_name: invite.full_name || "" },
+        });
+      return reply(200, { sent: true, kind: account ? "reset" : "invite" });
     }
     if (input.action === "status") {
       // Mailboxes this person may use: administrators see every department.
