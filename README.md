@@ -244,3 +244,10 @@ Horse Cargo OS is a vanilla HTML/CSS/JS progressive web app backed by Supabase (
 ## cPanel company mailbox and user deletion (v7)
 
 Apply `supabase/mail-v7.sql` after both v6 migrations before deploying the web changes. See [cPanel mail setup](docs/CPANEL-MAIL-SETUP.md) for server-only secrets, per-staff mailbox connection, browser notifications, deployment order and live acceptance checks. Existing staff conversations remain available under Previous staff messages.
+
+## Staff sign-in by invitation (v11)
+
+- There is no public sign-up. The administrator adds a person under **Users → Add staff**; saving sends a Supabase invite email. The link opens the app, the person chooses a password, and their role and branch apply immediately.
+- **Pending invites → Send link again** resends an invite, or a password link if the account already exists (also fixes accounts whose confirmation email never arrived).
+- **Forgot password?** on the sign-in page emails a reset link. Expired links show a clear message and the reset form.
+- Supabase settings (dashboard): Authentication → Sign In / Providers → turn off *Allow new users to sign up*; URL Configuration → Site URL `https://app.horsecargoltd.com` and that URL under Redirect URLs; Emails → SMTP Settings → use the company `noreply@` mailbox so invite and reset emails are delivered without the built-in hourly limit. `APP_URL` (Netlify env, optional) overrides the link destination.
